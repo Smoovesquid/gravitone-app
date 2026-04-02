@@ -117,8 +117,8 @@ export function tickParticles(s, dt) {
         continue;
       }
 
-      if (w.type === "looper" || w.type === "station") {
-        // Mild gravity from loopers/stations
+      if (w.type === "looper" || w.type === "station" || w.type === "quasar") {
+        // Mild gravity from loopers/stations/quasars (quasar beam physics in tickQuasars)
         const dx = w.x - p.x;
         const dy = w.y - p.y;
         const distSq = dx * dx + dy * dy;
