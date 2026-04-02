@@ -42,6 +42,7 @@ export function createKeyHandler(deps) {
     if (key === "3") { s.wellMode = "blackhole"; setWellMode("blackhole"); return; }
     if (key === "4") { s.wellMode = "looper";    setWellMode("looper");    return; }
     if (key === "5") { s.wellMode = "station";   setWellMode("station");   return; }
+    if (key === "6") { s.wellMode = "pulsar";    setWellMode("pulsar");    return; }
 
     // Q-I: note select (tone mode) or drum select (drum/looper mode)
     const qiIdx = NOTE_KEYS.indexOf(key);

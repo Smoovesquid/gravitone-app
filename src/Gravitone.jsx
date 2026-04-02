@@ -33,6 +33,7 @@ import { tickAliens } from "./physics/aliens";
 // Game objects
 import { tickMagnetars } from "./objects/magnetar";
 import { createToneWell, createDrumWell, createBlackhole, createLooperWell, createStation } from "./objects/well";
+import { createPulsar, tickPulsars } from "./objects/pulsar";
 
 // Input
 import { createKeyHandler } from "./input/keyboard";
@@ -148,6 +149,9 @@ export default function Gravitone() {
     } else if (s.wellMode === "station") {
       well = createStation(x, y, mass, s.time);
       playNote(s.audioCtx, 660, (x / s.width) * 2 - 1, 0.15, "fmBell");
+    } else if (s.wellMode === "pulsar") {
+      well = createPulsar(x, y, mass, s.bpm, s.time);
+      playNote(s.audioCtx, 1200, (x / s.width) * 2 - 1, 0.12, "fmBell");
     } else {
       return;
     }
@@ -301,7 +305,7 @@ export default function Gravitone() {
 
       // ---- Ambient particle spawning ----
       if (s.wells.length > 0 && s.particles.length < 15) {
-        const spawnWells = s.wells.filter((w) => w.type !== "looper" && w.type !== "station");
+        const spawnWells = s.wells.filter((w) => w.type !== "looper" && w.type !== "station" && w.type !== "pulsar");
         if (spawnWells.length > 0) {
           const w = spawnWells[Math.floor(Math.random() * spawnWells.length)];
           const angle = Math.random() * Math.PI * 2;
@@ -313,6 +317,7 @@ export default function Gravitone() {
       tickParticles(s, dt);
       tickAliens(s, dt);
       tickMagnetars(s, dt);
+      tickPulsars(s, dt);
       setParticleCount(s.particles.length);
 
       // ---- Render ----
@@ -425,7 +430,15 @@ export default function Gravitone() {
           ? (DRUM_TYPES[w.drumType]?.color || { core: "#FF3344", glow: "rgba(255,51,68,0.4)" })
           : w.type === "station"
             ? { core: "#FFCC33", glow: "rgba(255,204,51,0.4)" }
-            : PALETTE[(w.noteIdx || 0) % PALETTE.length],
+            : w.type === "pulsar"
+              ? { core: "#cce8ff", glow: "rgba(200,224,255,0.4)" }
+              : PALETTE[(w.noteIdx || 0) % PALETTE.length],
+      // Pulsar runtime state (reset on load — saved props come from spread)
+      pulsarBeamAngle: w.type === "pulsar" ? 0 : undefined,
+      pulsarSweepIntensity: w.type === "pulsar" ? 0 : undefined,
+      pulsarLastPulse: w.type === "pulsar" ? 0 : undefined,
+      pulsarGateRate: w.type === "pulsar" ? (w.pulsarGateRate || 4) : undefined,
+      pulsarRadius: w.type === "pulsar" ? (w.pulsarRadius || 200) : undefined,
       looper: w.type === "looper" ? (() => {
         const lp = createLooper(w.x, w.y, comp.settings?.bpm || 120, w.looper?.bars || 4);
         lp.loopStart = s.time; lp.events = w.looper?.events || [];

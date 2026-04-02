@@ -45,7 +45,7 @@
  *   y: number,
  *   mass: number,
  *   color: WellColor,
- *   type: 'tone'|'drum'|'blackhole'|'looper'|'station',
+ *   type: 'tone'|'drum'|'blackhole'|'looper'|'station'|'pulsar',
  *   born: number,
  *   pulsePhase: number,
  *   freq?: number,
@@ -64,6 +64,13 @@
  *   decayDuration?: number,
  *   decayProgress?: number,
  *   magnetarDead?: boolean,
+ *   pulsarBeamAngle?: number,
+ *   pulsarSweepIntensity?: number,
+ *   pulsarGateRate?: number,
+ *   pulsarRadius?: number,
+ *   pulsarLastPulse?: number,
+ *   gateUntil?: number,
+ *   gateAmount?: number,
  * }} Well
  */
 

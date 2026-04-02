@@ -17,4 +17,5 @@ export const THEME = {
     maxParticles: 150,
   },
   particleTrailColor: "rgba(255,255,255,0.14)",
+  pulsarColor: "#cce8ff", // cool blue-white — never purple, never cyan, never warm
 };

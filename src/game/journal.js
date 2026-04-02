@@ -19,6 +19,9 @@ export function saveComposition(name, wells, settings) {
       noteIdx: w.noteIdx || 0,
       octave: w.octave || 4,
       drumType: w.drumType || null,
+      // Pulsar data
+      pulsarGateRate: w.pulsarGateRate || null,
+      pulsarRadius: w.pulsarRadius || null,
       // Quasar data
       loopType: w.loopType || null,
       radius: w.radius || 0,

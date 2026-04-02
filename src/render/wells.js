@@ -16,6 +16,12 @@ export function drawWells(ctx, s) {
       continue;
     }
 
+    // ======= PULSAR =======
+    if (w.type === "pulsar") {
+      _drawPulsar(ctx, s, w);
+      continue;
+    }
+
     // ======= SPACE STATION =======
     if (w.type === "station") {
       _drawStation(ctx, s, w);
@@ -403,4 +409,124 @@ function _drawToneWell(ctx, s, w) {
   ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.font = "7px monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(getNoteName(w.freq) || `${w.noteIdx + 1}`, w.x, w.y + baseRadius + 10);
+}
+
+function _drawPulsar(ctx, s, w) {
+  const x = w.x;
+  const y = w.y;
+  const beamLength = 80;
+  const coreR = 8;
+  const beamAngle = w.pulsarBeamAngle || 0;
+  const sweepIntensity = w.pulsarSweepIntensity || 0;
+
+  // 1. Permanent faint beam stubs (always visible — hard lines, NOT glow)
+  for (let dir = 0; dir < 2; dir++) {
+    const angle = beamAngle + dir * Math.PI;
+    const bx = x + Math.cos(angle) * beamLength;
+    const by = y + Math.sin(angle) * beamLength;
+    const beamGrad = ctx.createLinearGradient(x, y, bx, by);
+    beamGrad.addColorStop(0, "rgba(200,224,255,0.10)");
+    beamGrad.addColorStop(1, "rgba(200,224,255,0.00)");
+    ctx.strokeStyle = beamGrad;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+  }
+
+  // 2. Active sweep — trapezoidal beam on beat flash (hard edges, NOT soft glow)
+  if (sweepIntensity > 0) {
+    const si = sweepIntensity;
+    for (let dir = 0; dir < 2; dir++) {
+      const angle = beamAngle + dir * Math.PI;
+      const bx = x + Math.cos(angle) * beamLength;
+      const by = y + Math.sin(angle) * beamLength;
+      const perp = angle + Math.PI / 2;
+      const hw0 = 2;  // half-width at core
+      const hw1 = 10; // half-width at tip
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(perp) * hw0, y + Math.sin(perp) * hw0);
+      ctx.lineTo(bx + Math.cos(perp) * hw1, by + Math.sin(perp) * hw1);
+      ctx.lineTo(bx - Math.cos(perp) * hw1, by - Math.sin(perp) * hw1);
+      ctx.lineTo(x - Math.cos(perp) * hw0, y - Math.sin(perp) * hw0);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(204,232,255,${0.35 * si})`;
+      ctx.fill();
+    }
+  }
+
+  // 3. Magnetic pole dots at beam tips
+  for (let dir = 0; dir < 2; dir++) {
+    const angle = beamAngle + dir * Math.PI;
+    const px = x + Math.cos(angle) * beamLength;
+    const py = y + Math.sin(angle) * beamLength;
+    ctx.beginPath();
+    ctx.arc(px, py, 2, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(220,240,255,0.40)";
+    ctx.fill();
+  }
+
+  // 4. Tri-lobed rotating core (spins faster than beam)
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(beamAngle * 1.5);
+  for (let lobe = 0; lobe < 3; lobe++) {
+    const la = (lobe / 3) * Math.PI * 2;
+    const lx = Math.cos(la) * 4;
+    const ly = Math.sin(la) * 4;
+    const lobeGrad = ctx.createRadialGradient(lx, ly, 0, lx, ly, 4);
+    lobeGrad.addColorStop(0, "#ffffff");
+    lobeGrad.addColorStop(0.4, "#cce8ff");
+    lobeGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = lobeGrad;
+    ctx.beginPath();
+    ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 5. Beat flash on core
+  if (sweepIntensity > 0.5) {
+    const flash = (sweepIntensity - 0.5) * 2;
+    const flashGrad = ctx.createRadialGradient(x, y, 0, x, y, coreR * 2);
+    flashGrad.addColorStop(0, `rgba(255,255,255,${flash * 0.9})`);
+    flashGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = flashGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, coreR * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 6. Effect radius indicator (faint dashed circle)
+  const pr = w.pulsarRadius || 200;
+  ctx.strokeStyle = "rgba(200,224,255,0.04)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 8]);
+  ctx.beginPath();
+  ctx.arc(x, y, pr, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 7. Connection lines to gated wells
+  for (const target of s.wells) {
+    if (target === w || target.type === "pulsar" || target.type === "station") continue;
+    if (target.gateUntil && target.gateUntil > s.time) {
+      const alpha = (target.gateAmount || 0.3) * 0.12;
+      ctx.strokeStyle = `rgba(200,224,255,${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(target.x, target.y);
+      ctx.stroke();
+    }
+  }
+
+  // 8. Label
+  const rateLabel = w.pulsarGateRate === 1 ? "1/4" : w.pulsarGateRate === 2 ? "1/8" : "1/16";
+  ctx.fillStyle = "rgba(200,224,255,0.30)";
+  ctx.font = "7px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(`pulsar \u00b7 ${rateLabel}`, x, y + coreR + 10);
 }
