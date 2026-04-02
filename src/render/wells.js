@@ -22,6 +22,12 @@ export function drawWells(ctx, s) {
       continue;
     }
 
+    // ======= NEUTRON STAR =======
+    if (w.type === "neutronstar") {
+      _drawNeutronStar(ctx, s, w);
+      continue;
+    }
+
     // ======= SPACE STATION =======
     if (w.type === "station") {
       _drawStation(ctx, s, w);
@@ -529,4 +535,87 @@ function _drawPulsar(ctx, s, w) {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillText(`pulsar \u00b7 ${rateLabel}`, x, y + coreR + 10);
+}
+
+function _drawNeutronStar(ctx, s, w) {
+  const x = w.x;
+  const y = w.y;
+  const r = 14;
+  const influenceR = w.neutronInfluenceRadius || 120;
+  const heat = w.neutronHeat || 0;
+  const spinOffset = (w.neutronSpinAngle || 0);
+
+  // 1. Heat shimmer corona (only when particles are close)
+  if (heat > 0.2) {
+    const heatR = r + heat * 40;
+    const heatGrad = ctx.createRadialGradient(x, y, r, x, y, heatR);
+    heatGrad.addColorStop(0, `rgba(255, 100, 40, ${heat * 0.25})`);
+    heatGrad.addColorStop(0.5, `rgba(255, 140, 60, ${heat * 0.10})`);
+    heatGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = heatGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, heatR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 2. Bright dense base surface (NOT dark — distinguishes from black hole)
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  const baseGrad = ctx.createRadialGradient(x, y, 0, x, y, r);
+  baseGrad.addColorStop(0, "#ff6644");   // bright hot center
+  baseGrad.addColorStop(0.6, "#cc3311"); // warm red-orange
+  baseGrad.addColorStop(1, "#881100");   // darker edge
+  ctx.fillStyle = baseGrad;
+  ctx.fill();
+
+  // 3. Rotating latitude bands (KEY IDENTITY — banded spinning sphere)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  const bandPeriod = 6;
+  const scrollOffset = spinOffset % bandPeriod;
+  for (let i = -5; i <= 5; i++) {
+    const bandY = y - r + scrollOffset + i * bandPeriod;
+    ctx.fillStyle = i % 2 === 0
+      ? "rgba(255, 200, 140, 0.30)"  // bright warm band
+      : "rgba(140, 20, 0, 0.25)";    // dark red band
+    ctx.fillRect(x - r, bandY, r * 2, bandPeriod / 2);
+  }
+  ctx.restore();
+
+  // 4. Bright rim light (always visible — defines edge, bright not faint)
+  const rimAlpha = 0.35 + heat * 0.35;
+  ctx.strokeStyle = `rgba(255, 100, 40, ${rimAlpha})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 5. Specular highlight (makes it look like a sphere, not a flat disk)
+  const specGrad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+  specGrad.addColorStop(0, "rgba(255, 255, 255, 0.25)");
+  specGrad.addColorStop(0.4, "rgba(255, 200, 150, 0.08)");
+  specGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = specGrad;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 6. Influence radius indicator (faint dashed circle)
+  ctx.strokeStyle = "rgba(255, 80, 30, 0.04)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 8]);
+  ctx.beginPath();
+  ctx.arc(x, y, influenceR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 7. Label
+  ctx.fillStyle = "rgba(255, 100, 40, 0.30)";
+  ctx.font = "7px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("neutron star", x, y + r + 10);
 }

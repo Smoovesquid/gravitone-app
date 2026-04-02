@@ -22,6 +22,8 @@ export function saveComposition(name, wells, settings) {
       // Pulsar data
       pulsarGateRate: w.pulsarGateRate || null,
       pulsarRadius: w.pulsarRadius || null,
+      // Neutron star data
+      neutronInfluenceRadius: w.neutronInfluenceRadius || null,
       // Quasar data
       loopType: w.loopType || null,
       radius: w.radius || 0,

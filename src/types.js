@@ -45,7 +45,7 @@
  *   y: number,
  *   mass: number,
  *   color: WellColor,
- *   type: 'tone'|'drum'|'blackhole'|'looper'|'station'|'pulsar',
+ *   type: 'tone'|'drum'|'blackhole'|'looper'|'station'|'pulsar'|'neutronstar',
  *   born: number,
  *   pulsePhase: number,
  *   freq?: number,
@@ -71,6 +71,10 @@
  *   pulsarLastPulse?: number,
  *   gateUntil?: number,
  *   gateAmount?: number,
+ *   neutronSpinAngle?: number,
+ *   neutronInfluenceRadius?: number,
+ *   neutronHeat?: number,
+ *   neutronLastOvertone?: number,
  * }} Well
  */
 

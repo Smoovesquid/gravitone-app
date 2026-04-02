@@ -47,6 +47,44 @@ export function tickParticles(s, dt) {
     let ax = 0, ay = 0;
 
     for (const w of s.wells) {
+      // Neutron Star: extreme gravity well — denser than tone wells, weaker than black hole
+      // Particles spiral inward and orbit, never absorbed
+      if (w.type === "neutronstar") {
+        const dx = w.x - p.x;
+        const dy = w.y - p.y;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq);
+        if (dist > 1) {
+          // Strong gravitational pull (between tone well and black hole)
+          const force = (w.mass * 100 * gravMult) / (distSq + 300);
+          ax += (dx / dist) * force;
+          ay += (dy / dist) * force;
+        }
+        // Orbital stabilization: prevent collapse into center
+        // Add tangential velocity component when close
+        const influenceR = w.neutronInfluenceRadius || 120;
+        if (dist < influenceR && dist > 5) {
+          // Tangential push creates orbital motion
+          const tangentStrength = Math.max(0, 1 - dist / influenceR) * 0.8;
+          const tx = -dy / dist; // perpendicular to radial direction
+          const ty = dx / dist;
+          ax += tx * tangentStrength;
+          ay += ty * tangentStrength;
+          // Slight damping near the star — particles slow down and spiral
+          if (dist < influenceR * 0.3) {
+            p.vx *= 0.995;
+            p.vy *= 0.995;
+          }
+        }
+        // Hard repulsion at core — prevents absorption
+        if (dist < 16) {
+          const bounce = 4 / Math.max(dist, 2);
+          ax -= dx * bounce * 0.6;
+          ay -= dy * bounce * 0.6;
+        }
+        continue;
+      }
+
       // Pulsar: mild gravity + beam fling
       if (w.type === "pulsar") {
         const dx = w.x - p.x;
