@@ -28,6 +28,12 @@ export function drawWells(ctx, s) {
       continue;
     }
 
+    // ======= QUASAR =======
+    if (w.type === "quasar") {
+      _drawQuasar(ctx, s, w);
+      continue;
+    }
+
     // ======= SPACE STATION =======
     if (w.type === "station") {
       _drawStation(ctx, s, w);
@@ -618,4 +624,112 @@ function _drawNeutronStar(ctx, s, w) {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillText("neutron star", x, y + r + 10);
+}
+
+function _drawQuasar(ctx, s, w) {
+  const x = w.x;
+  const y = w.y;
+  const angle = w.quasarAngle || 0;
+  const mode = w.quasarMode || "drone";
+  const intensity = w.quasarIntensity || 0;
+  const jetLength = w.quasarJetLength || 120;
+
+  // Mode colors
+  const MODES = {
+    drone:   { jet: "#FFB700", jetTip: "#ff9900" },
+    power:   { jet: "#cc2244", jetTip: "#991133" },
+    cluster: { jet: "#55ff22", jetTip: "#33cc11" },
+  };
+  const mc = MODES[mode] || MODES.drone;
+
+  // 1. Both jets — tapered trapezoid with gradient
+  for (let dir = 0; dir < 2; dir++) {
+    const jAngle = angle + dir * Math.PI;
+    const jx = x + Math.cos(jAngle) * jetLength;
+    const jy = y + Math.sin(jAngle) * jetLength;
+    const perpAngle = jAngle + Math.PI / 2;
+
+    // Jet gradient: blue-white core -> mode color -> transparent
+    const grad = ctx.createLinearGradient(x, y, jx, jy);
+    grad.addColorStop(0, `rgba(220, 240, 255, ${0.60 * intensity})`);
+    grad.addColorStop(0.25, _hexToRGBA(mc.jet, 0.45 * intensity));
+    grad.addColorStop(0.65, _hexToRGBA(mc.jetTip, 0.25 * intensity));
+    grad.addColorStop(1, _hexToRGBA(mc.jetTip, 0.0));
+
+    // Tapered trapezoid shape (narrow at core, wide at tip)
+    const hw0 = 2;  // half-width at core
+    const hw1 = 10; // half-width at tip
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(perpAngle) * hw0, y + Math.sin(perpAngle) * hw0);
+    ctx.lineTo(jx + Math.cos(perpAngle) * hw1, jy + Math.sin(perpAngle) * hw1);
+    ctx.lineTo(jx - Math.cos(perpAngle) * hw1, jy - Math.sin(perpAngle) * hw1);
+    ctx.lineTo(x - Math.cos(perpAngle) * hw0, y - Math.sin(perpAngle) * hw0);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Striation bands along the jet (visible banding within the beam)
+    const striationCount = 5;
+    for (let si = 0; si < striationCount; si++) {
+      const t = (si + 0.5) / striationCount;
+      const sx = x + Math.cos(jAngle) * jetLength * t;
+      const sy = y + Math.sin(jAngle) * jetLength * t;
+      const bandHW = hw0 + (hw1 - hw0) * t;
+      const bandAlpha = (1 - t) * 0.15 * intensity;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${bandAlpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(sx + Math.cos(perpAngle) * bandHW, sy + Math.sin(perpAngle) * bandHW);
+      ctx.lineTo(sx - Math.cos(perpAngle) * bandHW, sy - Math.sin(perpAngle) * bandHW);
+      ctx.stroke();
+    }
+
+    // Draggable handle at jet tip
+    ctx.beginPath();
+    ctx.arc(jx, jy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = _hexToRGBA(mc.jetTip, 0.60);
+    ctx.fill();
+  }
+
+  // 2. Streaming micro-particles along jets
+  const jetParticles = w.quasarJetParticles || [];
+  for (const mp of jetParticles) {
+    const t = mp.progress;
+    const jAngle = angle + mp.dir * Math.PI;
+    const perpAngle = jAngle + Math.PI / 2;
+    const px = x + Math.cos(jAngle) * t * jetLength + Math.cos(perpAngle) * mp.offset;
+    const py = y + Math.sin(jAngle) * t * jetLength + Math.sin(perpAngle) * mp.offset;
+    const alpha = (1 - t) * 0.45 * intensity;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = _hexToRGBA(mc.jet, alpha);
+    ctx.fill();
+  }
+
+  // 3. Compact bright core (tight 6px gradient, blue-white center)
+  const coreGrad = ctx.createRadialGradient(x, y, 0, x, y, 6);
+  coreGrad.addColorStop(0, "#ffffff");
+  coreGrad.addColorStop(0.3, "#e8f4ff");
+  coreGrad.addColorStop(0.6, "#cce0ff");
+  coreGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 4. Mode label
+  const modeLabels = { drone: "DRN", power: "PWR", cluster: "CLU" };
+  ctx.fillStyle = _hexToRGBA(mc.jet, 0.40);
+  ctx.font = "7px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(`quasar \u00b7 ${modeLabels[mode] || "DRN"}`, x, y + 14);
+}
+
+/** Convert hex color to rgba string. */
+function _hexToRGBA(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

@@ -35,6 +35,7 @@ import { tickMagnetars } from "./objects/magnetar";
 import { createToneWell, createDrumWell, createBlackhole, createLooperWell, createStation } from "./objects/well";
 import { createPulsar, tickPulsars } from "./objects/pulsar";
 import { createNeutronStar, tickNeutronStars } from "./objects/neutronStar";
+import { createQuasar, tickQuasars, disposeQuasar } from "./objects/quasar";
 
 // Input
 import { createKeyHandler } from "./input/keyboard";
@@ -156,6 +157,9 @@ export default function Gravitone() {
     } else if (s.wellMode === "neutronstar") {
       well = createNeutronStar(x, y, mass, s.time);
       playNote(s.audioCtx, 220, (x / s.width) * 2 - 1, 0.15, "sine");
+    } else if (s.wellMode === "quasar") {
+      well = createQuasar(x, y, mass, s.time, Math.random() * Math.PI * 2);
+      playNote(s.audioCtx, 440, (x / s.width) * 2 - 1, 0.12, "sine");
     } else {
       return;
     }
@@ -182,7 +186,8 @@ export default function Gravitone() {
   const undoLastWell = useCallback(() => {
     const s = stateRef.current;
     if (s.wells.length === 0) return;
-    s.wells.pop();
+    const removed = s.wells.pop();
+    if (removed && removed.type === "quasar") disposeQuasar(removed);
     undoStackRef.current.pop();
     setWellCount(s.wells.length);
     addToast("Undo");
@@ -190,6 +195,7 @@ export default function Gravitone() {
 
   const clearAll = useCallback(() => {
     const s = stateRef.current;
+    for (const w of s.wells) { if (w.type === "quasar") disposeQuasar(w); }
     s.wells = []; s.particles = []; undoStackRef.current = [];
     setWellCount(0); setParticleCount(0);
   }, []);
@@ -309,7 +315,7 @@ export default function Gravitone() {
 
       // ---- Ambient particle spawning ----
       if (s.wells.length > 0 && s.particles.length < 15) {
-        const spawnWells = s.wells.filter((w) => w.type !== "looper" && w.type !== "station" && w.type !== "pulsar" && w.type !== "neutronstar");
+        const spawnWells = s.wells.filter((w) => w.type !== "looper" && w.type !== "station" && w.type !== "pulsar" && w.type !== "neutronstar" && w.type !== "quasar");
         if (spawnWells.length > 0) {
           const w = spawnWells[Math.floor(Math.random() * spawnWells.length)];
           const angle = Math.random() * Math.PI * 2;
@@ -323,6 +329,7 @@ export default function Gravitone() {
       tickMagnetars(s, dt);
       tickPulsars(s, dt);
       tickNeutronStars(s, dt);
+      tickQuasars(s, dt);
       setParticleCount(s.particles.length);
 
       // ---- Render ----
@@ -439,7 +446,9 @@ export default function Gravitone() {
               ? { core: "#cce8ff", glow: "rgba(200,224,255,0.4)" }
               : w.type === "neutronstar"
                 ? { core: "#ff4422", glow: "rgba(255,68,34,0.4)" }
-                : PALETTE[(w.noteIdx || 0) % PALETTE.length],
+                : w.type === "quasar"
+                  ? { core: "#e8f4ff", glow: "rgba(232,244,255,0.4)" }
+                  : PALETTE[(w.noteIdx || 0) % PALETTE.length],
       // Pulsar runtime state (reset on load — saved props come from spread)
       pulsarBeamAngle: w.type === "pulsar" ? 0 : undefined,
       pulsarSweepIntensity: w.type === "pulsar" ? 0 : undefined,
@@ -451,6 +460,14 @@ export default function Gravitone() {
       neutronInfluenceRadius: w.type === "neutronstar" ? (w.neutronInfluenceRadius || 120) : undefined,
       neutronHeat: w.type === "neutronstar" ? 0 : undefined,
       neutronLastOvertone: w.type === "neutronstar" ? 0 : undefined,
+      // Quasar runtime state
+      quasarAngle: w.type === "quasar" ? (w.quasarAngle || 0) : undefined,
+      quasarMode: w.type === "quasar" ? (w.quasarMode || "drone") : undefined,
+      quasarIntensity: w.type === "quasar" ? 0 : undefined,
+      quasarJetLength: w.type === "quasar" ? (w.quasarJetLength || 120) : undefined,
+      quasarInfluenceRadius: w.type === "quasar" ? (w.quasarInfluenceRadius || 160) : undefined,
+      quasarDroneHandle: null,
+      quasarJetParticles: w.type === "quasar" ? [] : undefined,
       looper: w.type === "looper" ? (() => {
         const lp = createLooper(w.x, w.y, comp.settings?.bpm || 120, w.looper?.bars || 4);
         lp.loopStart = s.time; lp.events = w.looper?.events || [];

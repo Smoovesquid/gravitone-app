@@ -106,6 +106,7 @@ export default function Toolbar({
         <ModeBtn label="warp" active={wellMode === "station"} onClick={() => onSetMode("station")} activeColor="255,204,51" />
         <ModeBtn label="pulse" active={wellMode === "pulsar"} onClick={() => onSetMode("pulsar")} activeColor="200,224,255" />
         <ModeBtn label="neutron" active={wellMode === "neutronstar"} onClick={() => onSetMode("neutronstar")} activeColor="255,68,34" />
+        <ModeBtn label="quasar" active={wellMode === "quasar"} onClick={() => onSetMode("quasar")} activeColor="255,183,0" />
 
         <Sep />
 

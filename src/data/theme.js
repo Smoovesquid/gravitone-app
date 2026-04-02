@@ -19,4 +19,5 @@ export const THEME = {
   particleTrailColor: "rgba(255,255,255,0.14)",
   pulsarColor: "#cce8ff", // cool blue-white — never purple, never cyan, never warm
   neutronStarColor: "#ff4422", // hot red-orange — dense, bright, banded
+  quasarCoreColor: "#e8f4ff",  // blue-white compact core — jets only, no ambient glow
 };

@@ -25,6 +25,11 @@ export function saveComposition(name, wells, settings) {
       // Neutron star data
       neutronInfluenceRadius: w.neutronInfluenceRadius || null,
       // Quasar data
+      quasarAngle: w.quasarAngle ?? null,
+      quasarMode: w.quasarMode || null,
+      quasarJetLength: w.quasarJetLength || null,
+      quasarInfluenceRadius: w.quasarInfluenceRadius || null,
+      // Looper data
       loopType: w.loopType || null,
       radius: w.radius || 0,
       loopDuration: w.loopDuration || 0,

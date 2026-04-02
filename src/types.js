@@ -45,7 +45,7 @@
  *   y: number,
  *   mass: number,
  *   color: WellColor,
- *   type: 'tone'|'drum'|'blackhole'|'looper'|'station'|'pulsar'|'neutronstar',
+ *   type: 'tone'|'drum'|'blackhole'|'looper'|'station'|'pulsar'|'neutronstar'|'quasar',
  *   born: number,
  *   pulsePhase: number,
  *   freq?: number,
@@ -75,6 +75,13 @@
  *   neutronInfluenceRadius?: number,
  *   neutronHeat?: number,
  *   neutronLastOvertone?: number,
+ *   quasarAngle?: number,
+ *   quasarMode?: string,
+ *   quasarIntensity?: number,
+ *   quasarJetLength?: number,
+ *   quasarInfluenceRadius?: number,
+ *   quasarDroneHandle?: Object,
+ *   quasarJetParticles?: Array<{progress: number, speed: number, dir: number, offset: number}>,
  * }} Well
  */
 
