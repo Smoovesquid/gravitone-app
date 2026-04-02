@@ -2,6 +2,7 @@ import { THEME } from "../data/theme";
 import { getMaxWarp, getWarpParams, playWarpedNote } from "../audio/warp";
 import { playNote, playAbsorb } from "../audio/instruments";
 import { playDrum } from "../audio/drums";
+import { getGateMultiplier } from "../audio/pulsar";
 
 /**
  * Spawn particles at a position, mutating s.particles in place.
@@ -46,6 +47,34 @@ export function tickParticles(s, dt) {
     let ax = 0, ay = 0;
 
     for (const w of s.wells) {
+      // Pulsar: mild gravity + beam fling
+      if (w.type === "pulsar") {
+        const dx = w.x - p.x;
+        const dy = w.y - p.y;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq);
+        // Mild attraction
+        if (dist > 1) {
+          const force = (40 * gravMult) / (distSq + 500);
+          ax += (dx / dist) * force;
+          ay += (dy / dist) * force;
+        }
+        // Beam fling: if particle is within beam cone AND within radius, push outward
+        if (dist < (w.pulsarRadius || 200) && (w.pulsarSweepIntensity || 0) > 0.3) {
+          const angleToParticle = Math.atan2(-dy, -dx); // from pulsar to particle
+          const beamAngle = w.pulsarBeamAngle || 0;
+          const diff0 = Math.abs(((angleToParticle - beamAngle) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+          const diff1 = Math.abs(((angleToParticle - beamAngle - Math.PI) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+          const beamWidth = Math.PI / 6; // 30 degree cone for particles
+          if (diff0 < beamWidth || diff1 < beamWidth) {
+            const fling = w.pulsarSweepIntensity * 2 * (1 - dist / (w.pulsarRadius || 200));
+            ax -= (dx / dist) * fling; // push away from pulsar
+            ay -= (dy / dist) * fling;
+          }
+        }
+        continue;
+      }
+
       if (w.type === "looper" || w.type === "station") {
         // Mild gravity from loopers/stations
         const dx = w.x - p.x;
@@ -99,7 +128,8 @@ export function tickParticles(s, dt) {
 
         if (canTrigger && noteNow - p.lastNote > minInterval) {
           const pan = (w.x / s.width) * 2 - 1;
-          const vel = Math.min(1, w.mass / 100) * 0.7;
+          const gateMul = getGateMultiplier(w, s.time);
+          const vel = Math.min(1, w.mass / 100) * 0.7 * gateMul;
           const prox = getMaxWarp(w, stations);
           const warpP = getWarpParams(prox);
 

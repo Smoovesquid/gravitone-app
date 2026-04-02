@@ -104,6 +104,7 @@ export default function Toolbar({
         <ModeBtn label="void" active={wellMode === "blackhole"} onClick={() => onSetMode("blackhole")} />
         <ModeBtn label="loop" active={wellMode === "looper"} onClick={() => onSetMode("looper")} activeColor="100,200,255" />
         <ModeBtn label="warp" active={wellMode === "station"} onClick={() => onSetMode("station")} activeColor="255,204,51" />
+        <ModeBtn label="pulse" active={wellMode === "pulsar"} onClick={() => onSetMode("pulsar")} activeColor="200,224,255" />
 
         <Sep />
 
@@ -161,7 +162,7 @@ export default function Toolbar({
           <>
             click to place a gravity well
             <br />hold longer = stronger pull
-            <br /><span style={{ opacity: 0.6 }}>1-5 modes · Q-I sounds · S scale · A inst · G grid · Z undo</span>
+            <br /><span style={{ opacity: 0.6 }}>1-6 modes · Q-I sounds · S scale · A inst · G grid · Z undo</span>
           </>
         ) : showHint ? (
           <>hold + drag to spray particles</>
