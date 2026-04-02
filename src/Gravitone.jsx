@@ -99,6 +99,7 @@ export default function Gravitone() {
     _activeInteractions: [],
     hoveredWellId: null,
     wanderers: [],
+    draggingWellIdx: null,
   });
 
   const undoStackRef = useRef([]);
@@ -314,8 +315,8 @@ export default function Gravitone() {
         }
       }
 
-      // ---- Mouse particle spray ----
-      if (s.mouseDown && s.wells.length > 0) {
+      // ---- Mouse particle spray (not while dragging) ----
+      if (s.mouseDown && s.draggingWellIdx === null && s.wells.length > 0) {
         const elapsed = s.time - s.holdStart;
         const rate = Math.min(1 + elapsed * 3, 8);
         if (Math.random() < rate * dt * 60)
@@ -390,6 +391,27 @@ export default function Gravitone() {
     const pos = getPos(e);
     const s = stateRef.current;
     s.mouseDown = true; s.mouseX = pos.x; s.mouseY = pos.y; s.holdStart = s.time;
+
+    // Check if clicking on an existing object — enter drag mode
+    s.draggingWellIdx = null;
+    for (let i = s.wells.length - 1; i >= 0; i--) {
+      const w = s.wells[i];
+      if (w.removing) continue;
+      const d = Math.hypot(pos.x - w.x, pos.y - w.y);
+      const hitR = w.type === "blackhole" ? 12 + w.mass / 20
+        : w.type === "looper" ? 15
+        : w.type === "pulsar" ? 12
+        : w.type === "neutronstar" ? 18
+        : w.type === "quasar" ? 10
+        : w.type === "station" ? 15
+        : 10 + w.mass / 20;
+      if (d < hitR) {
+        s.draggingWellIdx = i;
+        s.dragOffsetX = pos.x - w.x;
+        s.dragOffsetY = pos.y - w.y;
+        break;
+      }
+    }
   };
 
   const handleMove = (e) => {
@@ -397,6 +419,24 @@ export default function Gravitone() {
     const pos = getPos(e);
     const s = stateRef.current;
     s.mouseX = pos.x; s.mouseY = pos.y;
+
+    // Drag object if in drag mode
+    if (s.mouseDown && s.draggingWellIdx !== null) {
+      const w = s.wells[s.draggingWellIdx];
+      if (w) {
+        w.x = pos.x - (s.dragOffsetX || 0);
+        w.y = pos.y - (s.dragOffsetY || 0);
+        // Update looper center position
+        if (w.type === "looper" && w.looper) {
+          w.looper.cx = w.x;
+          w.looper.cy = w.y;
+        }
+        // Update tone well octave based on new Y position
+        if (w.type === "tone") {
+          w.octave = octaveFromY(w.y, s.height);
+        }
+      }
+    }
 
     // Hover detection (runs even when mouse is not down)
     s.hoveredWellId = null;
@@ -418,6 +458,12 @@ export default function Gravitone() {
     s.mouseDown = false;
     const holdDuration = s.time - s.holdStart;
     const mass = Math.min(20 + holdDuration * 80, 200);
+
+    // If we were dragging, just release — don't create a new object
+    if (s.draggingWellIdx !== null) {
+      s.draggingWellIdx = null;
+      return;
+    }
 
     // Check if clicking on a looper
     for (const w of s.wells) {
@@ -448,8 +494,10 @@ export default function Gravitone() {
   const handleSickBeat = () => {
     const s = stateRef.current;
     if (!started) { setStarted(true); initAudio(); }
-    const cx = s.width / 2 + (Math.random() - 0.5) * 200;
-    const cy = s.height / 2 + (Math.random() - 0.5) * 150;
+    // Place at last mouse position if on canvas, otherwise random center
+    const hasMousePos = s.mouseX > 50 && s.mouseY > 50 && s.mouseX < s.width - 50 && s.mouseY < s.height - 80;
+    const cx = hasMousePos ? s.mouseX : s.width / 2 + (Math.random() - 0.5) * 200;
+    const cy = hasMousePos ? s.mouseY : s.height / 2 + (Math.random() - 0.5) * 150;
     const looper = createLooper(cx, cy, s.bpm, 2);
     looper.loopStart = s.time; looper.recording = false;
     const { events, patternName } = generateSickBeat(2, s.scale);
