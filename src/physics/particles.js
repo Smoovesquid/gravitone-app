@@ -1,0 +1,149 @@
+import { THEME } from "../data/theme";
+import { getMaxWarp, getWarpParams, playWarpedNote } from "../audio/warp";
+import { playNote, playAbsorb } from "../audio/instruments";
+import { playDrum } from "../audio/drums";
+
+/**
+ * Spawn particles at a position, mutating s.particles in place.
+ * @param {import('../types').GameState} s
+ * @param {number} x
+ * @param {number} y
+ * @param {number} [count=1]
+ */
+export function spawnParticlesAt(s, x, y, count = 1) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.3 + Math.random() * 1.5;
+    s.particles.push({
+      x: x + (Math.random() - 0.5) * 8,
+      y: y + (Math.random() - 0.5) * 8,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.0005 + Math.random() * 0.001,
+      radius: 1.2 + Math.random() * 1.8,
+      trail: [],
+      lastNote: 0,
+      born: s.time,
+    });
+  }
+}
+
+/**
+ * Run one physics tick for all particles: gravity, audio triggers, movement,
+ * trail accumulation, and lifecycle culling. Mutates s.particles in place.
+ * @param {import('../types').GameState} s
+ * @param {number} dt - delta time in seconds
+ */
+export function tickParticles(s, dt) {
+  const physics = THEME.physics;
+  const gravMult = physics.gravityMultiplier;
+  const maxSpeed = 6 * physics.particleSpeed;
+  const stations = s.wells.filter((w) => w.type === "station");
+
+  for (let i = s.particles.length - 1; i >= 0; i--) {
+    const p = s.particles[i];
+    let ax = 0, ay = 0;
+
+    for (const w of s.wells) {
+      if (w.type === "looper" || w.type === "station") {
+        // Mild gravity from loopers/stations
+        const dx = w.x - p.x;
+        const dy = w.y - p.y;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq);
+        if (dist > 1) {
+          const force = (40 * gravMult) / (distSq + 500);
+          ax += (dx / dist) * force;
+          ay += (dy / dist) * force;
+        }
+        continue;
+      }
+
+      const dx = w.x - p.x;
+      const dy = w.y - p.y;
+      const distSq = dx * dx + dy * dy;
+      const dist = Math.sqrt(distSq);
+
+      if (w.type === "blackhole") {
+        const eventHorizon = 12 + w.mass / 20;
+        if (dist < eventHorizon) {
+          p.life -= 0.08 * dt * 60;
+          if (p.life > 0.05 && p.life < 0.5 && s.time - w.lastAbsorb > 0.3) {
+            w.lastAbsorb = s.time;
+            playAbsorb(s.audioCtx, 60 + p.life * 200, (w.x / s.width) * 2 - 1);
+            w.pulsePhase = s.time;
+          }
+        }
+        if (dist > 1) {
+          const force = (w.mass * 150 * gravMult) / (distSq + 200);
+          ax += (dx / dist) * force;
+          ay += (dy / dist) * force;
+        }
+        if (dist < eventHorizon * 3) {
+          const factor = dist / (eventHorizon * 3);
+          p.vx *= 0.97 + 0.03 * factor;
+          p.vy *= 0.97 + 0.03 * factor;
+        }
+        continue;
+      }
+
+      // TONE & DRUM WELLS
+      const minDist = 8;
+      const triggerDist = s.quantize ? 25 : minDist;
+
+      if (dist < triggerDist) {
+        const noteNow = s.time;
+        const canTrigger = !s.quantize || s.onBeat;
+        const minInterval = s.quantize ? (60 / s.bpm / 4) * 0.8 : 0.12;
+
+        if (canTrigger && noteNow - p.lastNote > minInterval) {
+          const pan = (w.x / s.width) * 2 - 1;
+          const vel = Math.min(1, w.mass / 100) * 0.7;
+          const prox = getMaxWarp(w, stations);
+          const warpP = getWarpParams(prox);
+
+          if (w.type === "drum") {
+            playDrum(s.audioCtx, w.drumType, pan, vel);
+          } else {
+            if (warpP) {
+              const instPlay = (a, f, p2, v) => playNote(a, f, p2, v, s.instrument);
+              playWarpedNote(s.audioCtx, instPlay, w.freq, pan, vel, warpP);
+            } else {
+              playNote(s.audioCtx, w.freq, pan, vel, s.instrument);
+            }
+          }
+
+          p.lastNote = noteNow;
+          w.pulsePhase = s.time;
+        }
+      }
+
+      if (dist < minDist) {
+        const bounce = 3 / dist;
+        ax -= dx * bounce * 0.5;
+        ay -= dy * bounce * 0.5;
+        continue;
+      }
+
+      const force = (w.mass * 50 * gravMult) / (distSq + 500);
+      ax += (dx / dist) * force;
+      ay += (dy / dist) * force;
+    }
+
+    p.vx += ax * dt;
+    p.vy += ay * dt;
+    const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (speed > maxSpeed) { p.vx = (p.vx / speed) * maxSpeed; p.vy = (p.vy / speed) * maxSpeed; }
+    p.vx *= physics.damping;
+    p.vy *= physics.damping;
+    p.x += p.vx * dt * 60;
+    p.y += p.vy * dt * 60;
+    p.life -= p.decay * dt * 60;
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > 30) p.trail.shift();
+    if (p.life <= 0 || p.x < -50 || p.x > s.width + 50 || p.y < -50 || p.y > s.height + 50) {
+      s.particles.splice(i, 1);
+    }
+  }
+}

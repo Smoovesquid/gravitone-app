@@ -1,0 +1,406 @@
+import { PALETTE } from "../data/palette";
+import { DRUM_TYPES } from "../audio/drums";
+import { getNoteName } from "../audio/scales";
+
+/**
+ * Draw all wells in the scene.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {import('../types').GameState} s
+ */
+export function drawWells(ctx, s) {
+  for (const w of s.wells) {
+
+    // ======= LOOPER (Record/Play Ring) =======
+    if (w.type === "looper" && w.looper) {
+      _drawLooper(ctx, s, w);
+      continue;
+    }
+
+    // ======= SPACE STATION =======
+    if (w.type === "station") {
+      _drawStation(ctx, s, w);
+      continue;
+    }
+
+    // ======= BLACK HOLE / MAGNETAR =======
+    if (w.type === "blackhole") {
+      _drawBlackhole(ctx, s, w);
+      continue;
+    }
+
+    // ======= DRUM WELL =======
+    if (w.type === "drum") {
+      _drawDrumWell(ctx, s, w);
+      continue;
+    }
+
+    // ======= TONE WELL =======
+    _drawToneWell(ctx, s, w);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Private draw helpers
+// ---------------------------------------------------------------------------
+
+function _drawLooper(ctx, s, w) {
+  const lp = w.looper;
+  const r = lp.radius;
+  const rf = lp.recordFade; // 1=recording, 0=playing
+
+  // Interpolate colors: gold (recording) ↔ cyan (playing)
+  const ringR = Math.round(255 * rf + 100 * (1 - rf));
+  const ringG = Math.round(200 * rf + 200 * (1 - rf));
+  const ringB = Math.round(50 * rf + 255 * (1 - rf));
+
+  // Outer glow
+  const outerGrad = ctx.createRadialGradient(w.x, w.y, r * 0.8, w.x, w.y, r * 1.3);
+  outerGrad.addColorStop(0, `rgba(${ringR},${ringG},${ringB},0.04)`);
+  outerGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = outerGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, r * 1.3, 0, Math.PI * 2); ctx.fill();
+
+  // Ring — pulses brighter when recording
+  const ringAlpha = lp.recording ? (0.2 + Math.sin(s.time * 4) * 0.08) : 0.15;
+  ctx.strokeStyle = `rgba(${ringR},${ringG},${ringB},${ringAlpha})`;
+  ctx.lineWidth = lp.recording ? 2.5 : 1.5;
+  ctx.beginPath(); ctx.arc(w.x, w.y, r, 0, Math.PI * 2); ctx.stroke();
+
+  // Beat hashmarks — 16th note subdivisions
+  const totalSixteenths = lp.bars * 16;
+  for (let si = 0; si < totalSixteenths; si++) {
+    const tickAngle = (si / totalSixteenths) * Math.PI * 2;
+    const isDownbeat = si % 16 === 0;
+    const isBeat = si % 4 === 0;
+    const isEighth = si % 2 === 0;
+
+    let tickLen, alpha, lw;
+    if (isDownbeat) {
+      tickLen = 12; alpha = 0.4; lw = 1.5;
+    } else if (isBeat) {
+      tickLen = 8; alpha = 0.25; lw = 1;
+    } else if (isEighth) {
+      tickLen = 5; alpha = 0.12; lw = 0.7;
+    } else {
+      tickLen = 3; alpha = 0.06; lw = 0.5;
+    }
+
+    const innerR = r - tickLen;
+    const bx1 = w.x + Math.sin(tickAngle) * innerR;
+    const by1 = w.y - Math.cos(tickAngle) * innerR;
+    const bx2 = w.x + Math.sin(tickAngle) * r;
+    const by2 = w.y - Math.cos(tickAngle) * r;
+    ctx.strokeStyle = `rgba(${ringR},${ringG},${ringB},${alpha})`;
+    ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(bx1, by1); ctx.lineTo(bx2, by2); ctx.stroke();
+  }
+
+  // Events on the ring
+  for (const evt of lp.events) {
+    const ex = w.x + Math.sin(evt.angle) * r;
+    const ey = w.y - Math.cos(evt.angle) * r;
+    const flash = evt.lastFired && (s.time - evt.lastFired) < 0.12 ? 1 : 0;
+
+    ctx.beginPath();
+    ctx.arc(ex, ey, 3 + flash * 5, 0, Math.PI * 2);
+    if (evt.type === "drum") {
+      ctx.fillStyle = DRUM_TYPES[evt.drumType]?.color.core || "#fff";
+    } else {
+      ctx.fillStyle = PALETTE[(evt.noteIdx || 0) % PALETTE.length].core;
+    }
+    ctx.globalAlpha = 0.5 + flash * 0.5;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Playhead
+  const phAngle = lp.playheadAngle;
+  const phx = w.x + Math.sin(phAngle) * r;
+  const phy = w.y - Math.cos(phAngle) * r;
+  ctx.beginPath(); ctx.arc(phx, phy, 5, 0, Math.PI * 2);
+  ctx.fillStyle = lp.recording ? `rgba(255,200,50,0.9)` : `rgba(100,200,255,0.9)`;
+  ctx.fill();
+
+  // Sweep line
+  ctx.strokeStyle = `rgba(${ringR},${ringG},${ringB},0.08)`;
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(phx, phy); ctx.stroke();
+
+  // Core
+  const coreColor = lp.recording ? "#FFCC33" : "#66CCFF";
+  const coreGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, 6);
+  coreGrad.addColorStop(0, "#fff");
+  coreGrad.addColorStop(0.5, coreColor);
+  coreGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, 6, 0, Math.PI * 2); ctx.fill();
+
+  // Label
+  ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.font = "8px monospace";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const stateLabel = lp.recording ? "rec" : "play";
+  ctx.fillText(
+    `${stateLabel} \u00b7 ${lp.bars}bar \u00b7 ${lp.events.length}`,
+    w.x, w.y + r + 14
+  );
+}
+
+function _drawStation(ctx, s, w) {
+  const wr = w.warpRadius;
+
+  // Warp radius indicator
+  ctx.strokeStyle = "rgba(255,204,51,0.06)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 10]);
+  ctx.beginPath(); ctx.arc(w.x, w.y, wr, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Connection lines to affected wells
+  for (const ow of s.wells) {
+    if (ow === w || ow.type === "station" || ow.type === "looper") continue;
+    const dx = ow.x - w.x, dy = ow.y - w.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < wr) {
+      const alpha = (1 - dist / wr) * 0.15;
+      ctx.strokeStyle = `rgba(255,204,51,${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(ow.x, ow.y); ctx.stroke();
+    }
+  }
+
+  // Rotating rings (space station look)
+  ctx.save(); ctx.translate(w.x, w.y);
+  for (let ring = 0; ring < 3; ring++) {
+    const ringR = 12 + ring * 6;
+    const rot = s.time * (0.5 + ring * 0.3) * (ring % 2 === 0 ? 1 : -1);
+    ctx.save(); ctx.rotate(rot);
+    ctx.strokeStyle = `rgba(255,204,51,${0.15 - ring * 0.03})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, 0, ringR, ringR * 0.4, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Core
+  const coreGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, 6);
+  coreGrad.addColorStop(0, "#fff");
+  coreGrad.addColorStop(0.4, "#FFCC33");
+  coreGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, 6, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.font = "8px monospace";
+  ctx.textAlign = "center"; ctx.fillText("warp", w.x, w.y + 28);
+}
+
+function _drawBlackhole(ctx, s, w) {
+  const eventHorizon = 12 + w.mass / 20;
+  const accretionRadius = eventHorizon * 3;
+  const pulseDelta = s.time - w.pulsePhase;
+  const pulseIntensity = pulseDelta < 0.5 ? 1 - pulseDelta / 0.5 : 0;
+
+  // Magnetar mode — completely different visual
+  if (w.magnetar) {
+    const mi = w.magnetarIntensity;
+    const wobblePhase = s.time * 8;
+
+    const fieldR = accretionRadius * (1.5 + Math.sin(wobblePhase) * 0.3 * mi);
+    const fieldGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, fieldR);
+    fieldGrad.addColorStop(0, `rgba(0,255,200,${0.1 * mi})`);
+    fieldGrad.addColorStop(0.4, `rgba(0,180,255,${0.06 * mi})`);
+    fieldGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = fieldGrad;
+    ctx.beginPath(); ctx.arc(w.x, w.y, fieldR, 0, Math.PI * 2); ctx.fill();
+
+    // Magnetic field lines — spinning fast
+    ctx.save(); ctx.translate(w.x, w.y);
+    for (let arm = 0; arm < 6; arm++) {
+      ctx.beginPath();
+      const baseAngle = (arm / 6) * Math.PI * 2 + s.time * 4;
+      for (let t = 0; t <= 1; t += 0.02) {
+        const r = eventHorizon * 0.5 + accretionRadius * 1.5 * t;
+        const angle = baseAngle + t * Math.PI * 1.5 * (arm % 2 === 0 ? 1 : -1);
+        const wobble = Math.sin(t * 10 + wobblePhase) * 5 * mi;
+        const px = Math.cos(angle) * r + wobble;
+        const py = Math.sin(angle) * r + wobble;
+        if (t === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = `rgba(0,255,200,${(0.08 + pulseIntensity * 0.12) * mi})`;
+      ctx.lineWidth = 1 + pulseIntensity * 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Core — bright cyan/white, pulsing with wobble
+    const corePulse = 1 + Math.sin(wobblePhase) * 0.3 * mi;
+    const coreR = eventHorizon * corePulse;
+    const coreGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, coreR);
+    coreGrad.addColorStop(0, `rgba(255,255,255,${0.9 * mi})`);
+    coreGrad.addColorStop(0.3, `rgba(0,255,220,${0.6 * mi})`);
+    coreGrad.addColorStop(0.7, `rgba(0,100,255,${0.3 * mi})`);
+    coreGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath(); ctx.arc(w.x, w.y, coreR, 0, Math.PI * 2); ctx.fill();
+
+    // Border pulse
+    ctx.strokeStyle = `rgba(0,255,200,${(0.4 + pulseIntensity * 0.4) * mi})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(w.x, w.y, coreR, 0, Math.PI * 2); ctx.stroke();
+
+    // Label
+    if (mi > 0.1) {
+      ctx.fillStyle = `rgba(0,255,200,${0.3 * mi})`; ctx.font = "bold 8px monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("MAGNETAR", w.x, w.y + coreR + 12);
+    }
+    return;
+  }
+
+  // Decaying black hole — visual distortion builds
+  const decayShake = w.decaying ? (w.decayProgress || 0) * 4 : 0;
+  const shakeX = decayShake > 0 ? Math.sin(s.time * 30) * decayShake : 0;
+  const shakeY = decayShake > 0 ? Math.cos(s.time * 25) * decayShake : 0;
+  const drawX = w.x + shakeX;
+  const drawY = w.y + shakeY;
+
+  if (w.decaying) {
+    const dp = w.decayProgress || 0;
+    const decayGrad = ctx.createRadialGradient(drawX, drawY, 0, drawX, drawY, accretionRadius * 2);
+    decayGrad.addColorStop(0, `rgba(255,${Math.round(100 - dp * 80)},0,${dp * 0.15})`);
+    decayGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = decayGrad;
+    ctx.beginPath(); ctx.arc(drawX, drawY, accretionRadius * 2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  const outerGrad = ctx.createRadialGradient(drawX, drawY, accretionRadius * 0.5, drawX, drawY, accretionRadius * 2);
+  outerGrad.addColorStop(0, "rgba(60,0,100,0.06)");
+  outerGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = outerGrad;
+  ctx.beginPath(); ctx.arc(drawX, drawY, accretionRadius * 2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save(); ctx.translate(drawX, drawY);
+  const armSpeed = w.decaying ? 1.2 + (w.decayProgress || 0) * 4 : 1.2;
+  for (let arm = 0; arm < 4; arm++) {
+    ctx.beginPath();
+    const baseAngle = (arm / 4) * Math.PI * 2 + s.time * armSpeed;
+    for (let t = 0; t <= 1; t += 0.03) {
+      const r = eventHorizon + (accretionRadius - eventHorizon) * (1 - t);
+      const angle = baseAngle + t * Math.PI * 2;
+      if (t === 0) ctx.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
+      else ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+    }
+    const armColor = w.decaying
+      ? `rgba(${160 + Math.round((w.decayProgress || 0) * 95)},60,255,${0.06 + pulseIntensity * 0.06})`
+      : `rgba(160,60,255,${0.06 + pulseIntensity * 0.06})`;
+    ctx.strokeStyle = armColor;
+    ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.restore();
+
+  const diskGrad = ctx.createRadialGradient(drawX, drawY, eventHorizon * 0.8, drawX, drawY, accretionRadius);
+  diskGrad.addColorStop(0, `rgba(180,80,255,${0.12 + pulseIntensity * 0.15})`);
+  diskGrad.addColorStop(0.5, "rgba(120,30,200,0.05)");
+  diskGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = diskGrad;
+  ctx.beginPath(); ctx.arc(drawX, drawY, accretionRadius, 0, Math.PI * 2); ctx.fill();
+
+  const voidGrad = ctx.createRadialGradient(drawX, drawY, 0, drawX, drawY, eventHorizon);
+  voidGrad.addColorStop(0, "#000");
+  voidGrad.addColorStop(0.6, "#000");
+  voidGrad.addColorStop(1, "rgba(40,0,60,0.8)");
+  ctx.fillStyle = voidGrad;
+  ctx.beginPath(); ctx.arc(drawX, drawY, eventHorizon, 0, Math.PI * 2); ctx.fill();
+
+  ctx.strokeStyle = `rgba(200,100,255,${0.3 + pulseIntensity * 0.3})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(drawX, drawY, eventHorizon, 0, Math.PI * 2); ctx.stroke();
+}
+
+function _drawDrumWell(ctx, s, w) {
+  const pulseDelta = s.time - w.pulsePhase;
+  const pulseIntensity = pulseDelta < 0.12 ? 1 - pulseDelta / 0.12 : 0;
+  const baseSize = 4 + w.mass / 25;
+  const size = baseSize + pulseIntensity * 8;
+
+  const fieldRadius = 30 + w.mass * 0.4;
+  const fieldGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, fieldRadius);
+  fieldGrad.addColorStop(0, w.color.glow);
+  fieldGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = fieldGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, fieldRadius, 0, Math.PI * 2); ctx.fill();
+
+  if (pulseIntensity > 0) {
+    const pGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, size * 3);
+    pGrad.addColorStop(0, w.color.glow.replace("0.4", `${pulseIntensity * 0.5}`));
+    pGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = pGrad;
+    ctx.beginPath(); ctx.arc(w.x, w.y, size * 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.save(); ctx.translate(w.x, w.y);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size, 0); ctx.lineTo(0, size); ctx.lineTo(-size, 0); ctx.closePath();
+  const dGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, size);
+  dGrad.addColorStop(0, "#fff");
+  dGrad.addColorStop(0.4, w.color.core);
+  dGrad.addColorStop(1, w.color.glow);
+  ctx.fillStyle = dGrad; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.5); ctx.lineTo(0, size * 0.5);
+  ctx.moveTo(-size * 0.5, 0); ctx.lineTo(size * 0.5, 0);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = `rgba(255,255,255,${0.35 + pulseIntensity * 0.4})`;
+  ctx.font = "bold 8px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(w.drumType[0].toUpperCase(), w.x, w.y + size + 10);
+}
+
+function _drawToneWell(ctx, s, w) {
+  const pulseDelta = s.time - w.pulsePhase;
+  const pulseIntensity = pulseDelta < 0.3 ? 1 - pulseDelta / 0.3 : 0;
+  const baseRadius = 3 + (w.mass / 15);
+  const pulseRadius = baseRadius + pulseIntensity * 15;
+
+  const fieldRadius = 60 + w.mass;
+  const fieldGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, fieldRadius);
+  fieldGrad.addColorStop(0, w.color.glow.replace("0.4", "0.06"));
+  fieldGrad.addColorStop(0.5, w.color.glow.replace("0.4", "0.02"));
+  fieldGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = fieldGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, fieldRadius, 0, Math.PI * 2); ctx.fill();
+
+  if (pulseIntensity > 0) {
+    const rGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, pulseRadius * 3);
+    rGrad.addColorStop(0, w.color.glow.replace("0.4", `${pulseIntensity * 0.3}`));
+    rGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = rGrad;
+    ctx.beginPath(); ctx.arc(w.x, w.y, pulseRadius * 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  for (let r = 0; r < 3; r++) {
+    const ringRadius = 15 + r * 18 + w.mass * 0.3;
+    const ringAlpha = 0.04 - r * 0.01;
+    const rotation = s.time * (0.3 + r * 0.15) * (r % 2 === 0 ? 1 : -1);
+    ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(rotation);
+    ctx.strokeStyle = w.color.core;
+    ctx.globalAlpha = ringAlpha + pulseIntensity * 0.08;
+    ctx.lineWidth = 0.8; ctx.setLineDash([4, 8 + r * 4]);
+    ctx.beginPath(); ctx.arc(0, 0, ringRadius, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore(); ctx.globalAlpha = 1;
+  }
+
+  const coreGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, pulseRadius);
+  coreGrad.addColorStop(0, "#fff");
+  coreGrad.addColorStop(0.3, w.color.core);
+  coreGrad.addColorStop(1, w.color.glow);
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath(); ctx.arc(w.x, w.y, pulseRadius, 0, Math.PI * 2); ctx.fill();
+
+  // Note label
+  ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.font = "7px monospace";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(getNoteName(w.freq) || `${w.noteIdx + 1}`, w.x, w.y + baseRadius + 10);
+}

@@ -1,7 +1,11 @@
 {
-  "name": "gravitone-app",
-  "version": "0.1.0",
+  "name": "gravitone",
+  "version": "1.0.0",
   "private": true,
+  "description": "Cosmic beat machine — a spatial music instrument",
+  "author": "Timothy Smith",
+  "homepage": "./",
+  "main": "public/electron.js",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -12,11 +16,42 @@
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
   },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
+    "concurrently": "^9.0.0",
+    "wait-on": "^8.0.0"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "electron-dev": "concurrently \"PORT=3077 react-scripts start\" \"wait-on http://localhost:3077 && electron .\"",
+    "predist": "react-scripts build",
+    "dist": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.gravitone.app",
+    "productName": "Gravitone",
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.music",
+      "hardenedRuntime": true,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "Gravitone",
+      "backgroundColor": "#06060c"
+    },
+    "files": [
+      "build/**/*",
+      "public/electron.js"
+    ],
+    "directories": {
+      "buildResources": "build"
+    }
   },
   "eslintConfig": {
     "extends": [
@@ -26,14 +61,10 @@
   },
   "browserslist": {
     "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
+      "last 2 chrome versions"
     ],
     "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
+      "last 1 chrome version"
     ]
   }
 }
