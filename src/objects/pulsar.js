@@ -34,10 +34,10 @@ export function tickPulsars(s, dt) {
   for (const w of s.wells) {
     if (w.type !== "pulsar") continue;
 
-    // Rotate beam at BPM-locked speed
-    // Full rotation = 1 beat (adjustable by gateRate)
+    // Rotate beam at BPM-locked speed (respects black hole spin drag)
     const beatsPerSec = s.bpm / 60;
-    const rotSpeed = beatsPerSec * Math.PI * 2; // one full rotation per beat
+    const spinMult = w._effectiveSpinMult ?? 1;
+    const rotSpeed = beatsPerSec * Math.PI * 2 * spinMult;
     w.pulsarBeamAngle = (w.pulsarBeamAngle + rotSpeed * dt) % (Math.PI * 2);
 
     // Decay sweep intensity

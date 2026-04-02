@@ -1,24 +1,42 @@
 /**
- * Draw the beat indicator (16-step grid of dots) when quantize is on.
+ * Draw the beat indicator — 16-step centered dot row, amplitude-responsive.
+ * Per DESIGN.md: 4px base radius, centered, prominent, current beat pulses.
  * @param {CanvasRenderingContext2D} ctx
  * @param {import('../types').GameState} s
  * @param {number} sixteenthDur - duration of one sixteenth note in seconds
  */
 export function drawBeatIndicator(ctx, s, sixteenthDur) {
   if (!s.quantize) return;
+
+  const beatDots = 16;
+  const dotSpacing = 10;
+  const totalWidth = (beatDots - 1) * dotSpacing;
+  const startX = (s.width - totalWidth) / 2;
+  const dotY = 40;
+
   const currentStep = Math.floor(s.time / sixteenthDur) % 16;
-  const dotBaseX = s.width - 110;
-  for (let i = 0; i < 16; i++) {
-    const x = dotBaseX + i * 6;
-    const isActive = currentStep === i;
+  const timeSinceBeat = s.time - Math.floor(s.time / sixteenthDur) * sixteenthDur;
+
+  for (let i = 0; i < beatDots; i++) {
+    const isCurrentBeat = i === currentStep;
     const isDownbeat = i % 4 === 0;
+    const dotX = startX + i * dotSpacing;
+    const baseR = 4;
+
+    // Pulse on current beat: decays over ~125ms
+    const beatPulse = isCurrentBeat ? Math.max(0, 1 - timeSinceBeat * 8) * 2 : 0;
+    const r = baseR + beatPulse;
+
     ctx.beginPath();
-    ctx.arc(x, 55, isActive ? 3 : (isDownbeat ? 1.5 : 1), 0, Math.PI * 2);
-    ctx.fillStyle = isActive
-      ? "rgba(255,107,107,0.9)"
-      : isDownbeat
-        ? "rgba(255,255,255,0.3)"
-        : "rgba(255,255,255,0.1)";
+    ctx.arc(dotX, dotY, r, 0, Math.PI * 2);
+
+    if (isCurrentBeat) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.90)";
+    } else if (isDownbeat) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+    } else {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.20)";
+    }
     ctx.fill();
   }
 }

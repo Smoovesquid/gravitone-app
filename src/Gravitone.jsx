@@ -25,10 +25,12 @@ import { drawWells } from "./render/wells";
 import { drawParticles } from "./render/particles";
 import { drawAliens } from "./render/aliens";
 import { drawBeatIndicator } from "./render/ui";
+import { drawInteractions } from "./render/interactions";
 
 // Physics modules
 import { tickParticles, spawnParticlesAt } from "./physics/particles";
 import { tickAliens } from "./physics/aliens";
+import { applyProximityEffects } from "./physics/interactions";
 
 // Game objects
 import { tickMagnetars } from "./objects/magnetar";
@@ -94,6 +96,9 @@ export default function Gravitone() {
     lastSixteenth: -1,
     aliens: [],
     nextAlienSpawn: 15 + Math.random() * 15,
+    _activeInteractions: [],
+    hoveredWellId: null,
+    wanderers: [],
   });
 
   const undoStackRef = useRef([]);
@@ -186,10 +191,14 @@ export default function Gravitone() {
   const undoLastWell = useCallback(() => {
     const s = stateRef.current;
     if (s.wells.length === 0) return;
-    const removed = s.wells.pop();
-    if (removed && removed.type === "quasar") disposeQuasar(removed);
+    // Find last non-removing well
+    let idx = s.wells.length - 1;
+    while (idx >= 0 && s.wells[idx].removing) idx--;
+    if (idx < 0) return;
+    // Trigger removal animation (500ms) instead of instant removal
+    s.wells[idx].removing = true;
+    s.wells[idx].removeProgress = 0;
     undoStackRef.current.pop();
-    setWellCount(s.wells.length);
     addToast("Undo");
   }, [addToast]);
 
@@ -323,6 +332,24 @@ export default function Gravitone() {
         }
       }
 
+      // ---- Hover scale + removal animation ----
+      for (let wi = s.wells.length - 1; wi >= 0; wi--) {
+        const w = s.wells[wi];
+        // Hover scale lerp (0.08 per DESIGN.md)
+        const isHovered = wi === s.hoveredWellId;
+        const target = isHovered ? 1.2 : 1.0;
+        w.hoverScale = (w.hoverScale || 1) + (target - (w.hoverScale || 1)) * 0.08;
+        // Removal animation
+        if (w.removing) {
+          w.removeProgress = (w.removeProgress || 0) + dt / 0.5; // 500ms
+          if (w.removeProgress >= 1) {
+            if (w.type === "quasar") disposeQuasar(w);
+            s.wells.splice(wi, 1);
+            setWellCount(s.wells.length);
+          }
+        }
+      }
+
       // ---- Physics ----
       tickParticles(s, dt);
       tickAliens(s, dt);
@@ -330,10 +357,12 @@ export default function Gravitone() {
       tickPulsars(s, dt);
       tickNeutronStars(s, dt);
       tickQuasars(s, dt);
+      applyProximityEffects(s, dt);
       setParticleCount(s.particles.length);
 
       // ---- Render ----
       drawBackground(ctx, s);
+      drawInteractions(ctx, s);
       drawWells(ctx, s);
       drawAliens(ctx, s);
       drawParticles(ctx, s);
@@ -365,9 +394,21 @@ export default function Gravitone() {
 
   const handleMove = (e) => {
     e.preventDefault();
-    if (!stateRef.current.mouseDown) return;
     const pos = getPos(e);
-    stateRef.current.mouseX = pos.x; stateRef.current.mouseY = pos.y;
+    const s = stateRef.current;
+    s.mouseX = pos.x; s.mouseY = pos.y;
+
+    // Hover detection (runs even when mouse is not down)
+    s.hoveredWellId = null;
+    for (let i = 0; i < s.wells.length; i++) {
+      const w = s.wells[i];
+      const d = Math.hypot(pos.x - w.x, pos.y - w.y);
+      const hoverR = (w.type === "blackhole" ? 12 + w.mass / 20 : 20) * 1.5;
+      if (d < hoverR) {
+        s.hoveredWellId = i;
+        break;
+      }
+    }
   };
 
   const handleUp = (e) => {
