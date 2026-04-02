@@ -9,51 +9,65 @@ import { getNoteName } from "../audio/scales";
  */
 export function drawWells(ctx, s) {
   for (const w of s.wells) {
+    // Hover scale + removal animation wrapper
+    const hs = w.hoverScale || 1;
+    const removing = w.removing && w.removeProgress != null;
+    let drawScale = hs;
+    let drawAlpha = 1;
+
+    if (removing) {
+      const t = Math.min(w.removeProgress, 1);
+      // Phase 1 (0→0.5): scale up to 1.2×; Phase 2 (0.5→1): scale to 0
+      drawScale = t < 0.5 ? hs * (1 + t * 0.4) : hs * (1.2 - (t - 0.5) * 2.4);
+      drawAlpha = 1 - t;
+    }
+
+    const needsTransform = drawScale !== 1 || drawAlpha !== 1;
+    if (needsTransform) {
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.scale(drawScale, drawScale);
+      ctx.translate(-w.x, -w.y);
+      ctx.globalAlpha = Math.max(0, drawAlpha);
+    }
+
+    // Removal flash at peak (t ≈ 0.5)
+    if (removing) {
+      const t = w.removeProgress;
+      if (t > 0.4 && t < 0.6) {
+        const flashIntensity = 1 - Math.abs(t - 0.5) * 10;
+        const flashGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, 20);
+        flashGrad.addColorStop(0, `rgba(255, 255, 255, ${flashIntensity * 0.7})`);
+        flashGrad.addColorStop(1, "transparent");
+        ctx.fillStyle = flashGrad;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, 20, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     // ======= LOOPER (Record/Play Ring) =======
     if (w.type === "looper" && w.looper) {
       _drawLooper(ctx, s, w);
-      continue;
-    }
-
-    // ======= PULSAR =======
-    if (w.type === "pulsar") {
+    } else if (w.type === "pulsar") {
       _drawPulsar(ctx, s, w);
-      continue;
-    }
-
-    // ======= NEUTRON STAR =======
-    if (w.type === "neutronstar") {
+    } else if (w.type === "neutronstar") {
       _drawNeutronStar(ctx, s, w);
-      continue;
-    }
-
-    // ======= QUASAR =======
-    if (w.type === "quasar") {
+    } else if (w.type === "quasar") {
       _drawQuasar(ctx, s, w);
-      continue;
-    }
-
-    // ======= SPACE STATION =======
-    if (w.type === "station") {
+    } else if (w.type === "station") {
       _drawStation(ctx, s, w);
-      continue;
-    }
-
-    // ======= BLACK HOLE / MAGNETAR =======
-    if (w.type === "blackhole") {
+    } else if (w.type === "blackhole") {
       _drawBlackhole(ctx, s, w);
-      continue;
-    }
-
-    // ======= DRUM WELL =======
-    if (w.type === "drum") {
+    } else if (w.type === "drum") {
       _drawDrumWell(ctx, s, w);
-      continue;
+    } else {
+      _drawToneWell(ctx, s, w);
     }
 
-    // ======= TONE WELL =======
-    _drawToneWell(ctx, s, w);
+    if (needsTransform) {
+      ctx.restore();
+    }
   }
 }
 
@@ -382,7 +396,10 @@ function _drawToneWell(ctx, s, w) {
   const baseRadius = 3 + (w.mass / 15);
   const pulseRadius = baseRadius + pulseIntensity * 15;
 
-  const fieldRadius = 60 + w.mass;
+  // Amplitude-responsive glow: pulseIntensity acts as RMS proxy (0-1)
+  // Max 40% boost per DESIGN.md
+  const glowBoost = 1 + 0.4 * pulseIntensity;
+  const fieldRadius = (60 + w.mass) * glowBoost;
   const fieldGrad = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, fieldRadius);
   fieldGrad.addColorStop(0, w.color.glow.replace("0.4", "0.06"));
   fieldGrad.addColorStop(0.5, w.color.glow.replace("0.4", "0.02"));

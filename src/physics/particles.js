@@ -3,6 +3,7 @@ import { getMaxWarp, getWarpParams, playWarpedNote } from "../audio/warp";
 import { playNote, playAbsorb } from "../audio/instruments";
 import { playDrum } from "../audio/drums";
 import { getGateMultiplier } from "../audio/pulsar";
+import { canTriggerPair, markPairTriggered, acquireSlot, releaseSlot, cleanupCooldowns } from "../audio/pool";
 
 /**
  * Spawn particles at a position, mutating s.particles in place.
@@ -41,6 +42,9 @@ export function tickParticles(s, dt) {
   const gravMult = physics.gravityMultiplier;
   const maxSpeed = 6 * physics.particleSpeed;
   const stations = s.wells.filter((w) => w.type === "station");
+
+  // Periodic cooldown cleanup (every ~2s)
+  if (Math.floor(s.time) !== Math.floor(s.time - dt)) cleanupCooldowns(s.time);
 
   for (let i = s.particles.length - 1; i >= 0; i--) {
     const p = s.particles[i];
@@ -166,29 +170,36 @@ export function tickParticles(s, dt) {
 
       if (dist < triggerDist) {
         const noteNow = s.time;
-        const canTrigger = !s.quantize || s.onBeat;
+        const canTrig = !s.quantize || s.onBeat;
         const minInterval = s.quantize ? (60 / s.bpm / 4) * 0.8 : 0.12;
+        const wellIdx = s.wells.indexOf(w);
 
-        if (canTrigger && noteNow - p.lastNote > minInterval) {
-          const pan = (w.x / s.width) * 2 - 1;
-          const gateMul = getGateMultiplier(w, s.time);
-          const vel = Math.min(1, w.mass / 100) * 0.7 * gateMul;
-          const prox = getMaxWarp(w, stations);
-          const warpP = getWarpParams(prox);
+        if (canTrig && noteNow - p.lastNote > minInterval && canTriggerPair(i, wellIdx, noteNow)) {
+          if (acquireSlot()) {
+            const pan = (w.x / s.width) * 2 - 1;
+            const gateMul = getGateMultiplier(w, s.time);
+            const vel = Math.min(1, w.mass / 100) * 0.7 * gateMul;
+            const prox = getMaxWarp(w, stations);
+            const warpP = getWarpParams(prox);
 
-          if (w.type === "drum") {
-            playDrum(s.audioCtx, w.drumType, pan, vel);
-          } else {
-            if (warpP) {
-              const instPlay = (a, f, p2, v) => playNote(a, f, p2, v, s.instrument);
-              playWarpedNote(s.audioCtx, instPlay, w.freq, pan, vel, warpP);
+            if (w.type === "drum") {
+              playDrum(s.audioCtx, w.drumType, pan, vel);
             } else {
-              playNote(s.audioCtx, w.freq, pan, vel, s.instrument);
+              if (warpP) {
+                const instPlay = (a, f, p2, v) => playNote(a, f, p2, v, s.instrument);
+                playWarpedNote(s.audioCtx, instPlay, w.freq, pan, vel, warpP);
+              } else {
+                playNote(s.audioCtx, w.freq, pan, vel, s.instrument);
+              }
             }
-          }
 
-          p.lastNote = noteNow;
-          w.pulsePhase = s.time;
+            markPairTriggered(i, wellIdx, noteNow);
+            p.lastNote = noteNow;
+            w.pulsePhase = s.time;
+
+            // Auto-release slot after typical note duration
+            setTimeout(releaseSlot, 1500);
+          }
         }
       }
 
