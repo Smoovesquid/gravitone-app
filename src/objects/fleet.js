@@ -13,10 +13,10 @@ import { createShip, steerShip } from './ship';
 import { restoreWells } from './battleWells';
 import { playWarpIn, playAbsorb, playBuild } from '../audio/fleet';
 
-const EAT_DUR   = 44;   // seconds per well eaten
-const BUILD_DUR  = 14;   // seconds per well built
-const PHASE_DUR  = { arriving: 15, scanning: 22, digesting: 20, departing: 12 };
-const GAP_DUR    = [18, 30];  // [min, max] seconds between visits
+const EAT_DUR   = 3.5;  // seconds per well eaten (dramatic but quick)
+const BUILD_DUR  = 3.5;  // seconds per well built
+const PHASE_DUR  = { arriving: 8, scanning: 14, digesting: 12, departing: 10 };
+const GAP_DUR    = [90, 150]; // [min, max] seconds — enjoy the new beat
 
 const GENRE_INSTRUMENTS = { trap: 'sawtooth', lofi: 'triangle', house: 'sine', boombap: 'triangle', techno: 'sawtooth' };
 const GENRE_DRUMS = { trap: 'kick', lofi: 'hihat', house: 'kick', boombap: 'snare', techno: 'kick' };
@@ -133,10 +133,10 @@ function _tickScanning(fl, s, dt, addToast, setters) {
     if (setters.setInstrument) setters.setInstrument(s.instrument);
     addToast(`♩ canvas tuned to ${fl.visitor.label}`);
 
-    // Select half of edible wells
+    // Eat everything — ship deconstructs the whole scene
     const edible = s.wells.filter(w => w && !w.removing &&
       (w.type === 'tone' || w.type === 'drum'));
-    const count = Math.max(1, Math.floor(edible.length / 2));
+    const count = edible.length;
     fl.wellsToEat = edible.sort(() => Math.random() - 0.5).slice(0, count);
     fl.wellsToEat.forEach(w => {
       w._scheduledForEating = true;
