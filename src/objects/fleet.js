@@ -16,12 +16,12 @@ import { createShip, steerShip } from './ship';
 import { restoreWells } from './battleWells';
 import { playWarpIn, playAbsorb, playBuild } from '../audio/fleet';
 
-const EAT_DUR     = 2.2;   // seconds to pull each well in (parallel)
-const EAT_STAGGER = 0.32;  // seconds between each well starting to move
-const BUILD_DUR   = 2.0;   // seconds each well takes to materialize
-const BUILD_STAGGER = 0.45; // seconds between each well spawning
+const EAT_DUR     = 0.55;  // seconds to pull each well in (parallel)
+const EAT_STAGGER = 0.08;  // seconds between each well starting to move
+const BUILD_DUR   = 0.8;   // seconds each well takes to materialize
+const BUILD_STAGGER = 0.14; // seconds between each well spawning
 
-const PHASE_DUR = { arriving: 5, digesting: 8, departing: 8 };
+const PHASE_DUR = { arriving: 2, digesting: 6, departing: 6 };
 const GAP_DUR   = [90, 150]; // seconds between visits
 
 const ALL_EDIBLE = new Set(['tone','drum','looper','pulsar','neutronstar','quasar','station','blackhole']);
