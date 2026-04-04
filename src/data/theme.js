@@ -20,4 +20,12 @@ export const THEME = {
   pulsarColor: "#cce8ff", // cool blue-white — never purple, never cyan, never warm
   neutronStarColor: "#ff4422", // hot red-orange — dense, bright, banded
   quasarCoreColor: "#e8f4ff",  // blue-white compact core — jets only, no ambient glow
+  cruiser: {
+    hull: "#181d23",           // dark gunmetal
+    hullEdge: "rgba(200,110,55,0.65)", // red-orange accent lighting
+    beam: "rgba(190,255,110,", // tractor beam (append alpha + ")")
+    beamGlow: "rgba(160,255,80,",
+    engine: "rgba(255,150,50,",
+    label: "rgba(180,255,100,",
+  },
 };
