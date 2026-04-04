@@ -68,8 +68,15 @@ export function transformWell(well, ship) {
 
   const scale = SCALES[g.scale]?.notes || SCALES.pentatonic.notes;
   const noteIdx = Math.min(well.noteIdx ?? 0, scale.length - 1);
-  well.freq = getScaleNoteFrequency(g.scale, noteIdx, well.octave ?? 4);
+  const newFreq = getScaleNoteFrequency(g.scale, noteIdx, well.octave ?? 4);
   well.scaleName = g.scale;
+
+  // Portamento: glide from current freq to new target over ~550ms
+  well._freqFrom   = well.freq;
+  well._freqTarget = newFreq;
+  well._freqGlideT = 0;
+  // freq will be updated each tick in tickFleet; set now as fallback
+  well.freq = newFreq;
 
   // Visual pulse to signal the change
   well.pulsePhase = Date.now() / 1000;

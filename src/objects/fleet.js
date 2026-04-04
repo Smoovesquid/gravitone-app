@@ -5,7 +5,8 @@
 import { GENRE_KEYS } from '../data/genres';
 import { createShip, steerShip, findTargetWell, tickShipExplosion } from './ship';
 import { transformWell, restoreWells, removeFleetWells } from './battleWells';
-import { playExplosion, playMissileFire, playWellTransform } from '../audio/fleet';
+import { playExplosion, playMissileFire, playWellTransform, playGenrePulse, playBattleTension, playVictoryFanfare } from '../audio/fleet';
+import { GENRES } from '../data/genres';
 
 const CLAIM_TIME = 3.5;
 const MISSILE_SPD = 135;
@@ -61,6 +62,33 @@ export function tickFleet(s, dt, addToast) {
     addToast('⚔ COMBAT — ships open fire');
   }
 
+  // Portamento: advance frequency glides on all wells
+  for (const w of s.wells) {
+    if (w._freqGlideT != null && w._freqGlideT < 1) {
+      w._freqGlideT = Math.min(1, w._freqGlideT + dt * 1.82); // ~550ms
+      const t = 1 - (1 - w._freqGlideT) ** 3;                 // ease-out cubic
+      w.freq = w._freqFrom + (w._freqTarget - w._freqFrom) * t;
+    }
+  }
+
+  // Genre BPM entrainment: owned tone wells pulse at genre tempo in combat
+  if (fl.phase === 'combat') {
+    for (const ship of fl.ships) {
+      if (ship.state !== 'active' && ship.state !== 'victory') continue;
+      const bpm = GENRES[ship.genre]?.bpm ?? 120;
+      const period = 60 / bpm;
+      for (const wi of ship.controlledWells) {
+        const w = s.wells[wi];
+        if (!w || w.type !== 'tone') continue;
+        w._pulseAccum = (w._pulseAccum || 0) + dt;
+        if (w._pulseAccum >= period) {
+          w._pulseAccum -= period;
+          if (s.audioCtx) playGenrePulse(s.audioCtx, w.freq, ship.genre, (w.x / s.width) * 2 - 1);
+        }
+      }
+    }
+  }
+
   // Clear contested flags each tick — re-set below when detected
   for (const w of s.wells) { w.fleetContested = false; w.fleetContestedRgb = null; }
 
@@ -82,9 +110,11 @@ export function tickFleet(s, dt, addToast) {
     alive[0].state = 'victory';
     alive[0].victoryTimer = 6;
     // Crescendo — boost winner's wells
-    for (const wi of alive[0].controlledWells) {
-      if (s.wells[wi]) s.wells[wi].mass = Math.min((s.wells[wi].mass || 60) * 1.7, 190);
-    }
+    const winnerToneWells = [...alive[0].controlledWells].map(wi => s.wells[wi]).filter(w => w?.type === 'tone');
+    for (const w of winnerToneWells) w.mass = Math.min((w.mass || 60) * 1.7, 190);
+    // Victory fanfare in the winning genre
+    const rootFreq = winnerToneWells[0]?.freq ?? 220;
+    if (s.audioCtx) playVictoryFanfare(s.audioCtx, alive[0].genre, rootFreq);
     addToast(`♫ ${alive[0].label} DOMINATES`);
   }
   for (const sh of fl.ships) {
@@ -205,6 +235,7 @@ function _tickMissiles(fl, s, dt, addToast) {
         const wi = [...tgt.controlledWells][0];
         tgt.controlledWells.delete(wi); fl.wellOwnership.delete(wi);
       }
+      if (s.audioCtx) playBattleTension(s.audioCtx, 1 - tgt.hp / tgt.maxHp);
       if (tgt.hp <= 0) _destroyShip(tgt, fl, s, addToast);
       fl.missiles.splice(i, 1); continue;
     }
