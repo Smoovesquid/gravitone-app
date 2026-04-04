@@ -419,7 +419,11 @@ export default function Gravitone() {
 
       // ---- Fleet Battle tick ----
       if (s.fleet) {
-        tickFleet(s, dt, addToastRef.current);
+        tickFleet(s, dt, addToastRef.current, {
+          setBpm:        (val)  => { s.bpm = val; setBpm(val); },
+          setScale:      (name) => { s.scaleName = name; s.scale = getScaleNotes(name); setScaleName(name); },
+          setInstrument: (inst) => { s.instrument = inst; setInstrumentName(inst); },
+        });
         if (!s.fleet.active) {
           cleanupFleet(s);
           s.fleet = null;

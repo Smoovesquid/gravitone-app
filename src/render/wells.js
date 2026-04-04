@@ -22,6 +22,10 @@ export function drawWells(ctx, s) {
       drawAlpha = 1 - t;
     }
 
+    // Visitor eat/build animation
+    if (w._eatScale != null)   drawScale *= w._eatScale;
+    if (w._buildScale != null) drawScale *= w._buildScale;
+
     // Dance pulse — wells bob to their taught genre's BPM
     if (w._danceAmp > 0 && w._danceBpm) {
       const bpmRad  = (w._danceBpm / 60) * Math.PI * 2;

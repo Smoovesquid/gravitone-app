@@ -1,10 +1,8 @@
 /**
- * @fileoverview Audio for Alien Visitation mode.
- * Warp arrival, session start chord, genre pulses from taught wells,
- * teaching resonance tone.  No combat sounds.
+ * @fileoverview Audio for Alien Visitation — warp in, absorb, rebuild, depart.
  */
 
-/** Dramatic warp-in whoosh — ship materialises from hyperspace. */
+/** Dramatic warp-in whoosh. */
 export function playWarpIn(audio) {
   if (!audio?.ctx) return;
   const { ctx, master } = audio;
@@ -12,80 +10,89 @@ export function playWarpIn(audio) {
   const osc  = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(60, now);
-  osc.frequency.exponentialRampToValueAtTime(680, now + 0.55);
+  osc.frequency.setValueAtTime(55, now);
+  osc.frequency.exponentialRampToValueAtTime(720, now + 0.6);
   gain.gain.setValueAtTime(0.001, now);
-  gain.gain.linearRampToValueAtTime(0.16, now + 0.12);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+  gain.gain.linearRampToValueAtTime(0.16, now + 0.14);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.92);
   osc.connect(gain); gain.connect(master);
-  osc.start(now); osc.stop(now + 0.95);
+  osc.start(now); osc.stop(now + 1.0);
 }
 
 /**
- * Soft rising chord when a session begins — "let's play together".
- * Three sine partials spread across the genre's color.
- * @param {Object} audio
- * @param {string} rgb   e.g. '255,34,68' — ignored for audio, kept for future tint
- */
-export function playSessionStart(audio, rgb) {  // eslint-disable-line no-unused-vars
-  if (!audio?.ctx) return;
-  const { ctx, master } = audio;
-  const now = ctx.currentTime;
-  [220, 330, 440].forEach((freq, i) => {
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = freq;
-    const t = now + i * 0.09;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.08, t + 0.06);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-    osc.connect(gain); gain.connect(master);
-    osc.start(t); osc.stop(t + 1.3);
-  });
-}
-
-/**
- * Resonant bell-tone when a visitor permanently teaches a well.
- * A pure sine with a long decay — like a tuning fork finding its note.
+ * Descending consumption tone — a well is being absorbed.
+ * Pitch falls from well's frequency down to a low rumble.
  * @param {Object} audio
  * @param {number} freq  the well's frequency
  */
-export function playTeachWell(audio, freq) {
+export function playAbsorb(audio, freq) {
   if (!audio?.ctx) return;
   const { ctx, master } = audio;
   const now = ctx.currentTime;
 
-  // Fundamental
+  // Falling sweep
   const osc  = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
-  osc.frequency.value = freq;
-  gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(0.14, now + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 2.2);
+  osc.frequency.setValueAtTime(freq, now);
+  osc.frequency.exponentialRampToValueAtTime(28, now + 0.9);
+  gain.gain.setValueAtTime(0.0, now);
+  gain.gain.linearRampToValueAtTime(0.14, now + 0.06);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
   osc.connect(gain); gain.connect(master);
-  osc.start(now); osc.stop(now + 2.4);
+  osc.start(now); osc.stop(now + 1.1);
 
-  // Octave shimmer
-  const osc2  = ctx.createOscillator();
-  const gain2 = ctx.createGain();
-  osc2.type = 'sine';
-  osc2.frequency.value = freq * 2;
-  gain2.gain.setValueAtTime(0, now);
-  gain2.gain.linearRampToValueAtTime(0.05, now + 0.03);
-  gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
-  osc2.connect(gain2); gain2.connect(master);
-  osc2.start(now); osc2.stop(now + 1.5);
+  // Brief noise crunch at absorption moment
+  const bufLen = Math.floor(ctx.sampleRate * 0.12);
+  const buf    = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+  const data   = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+  const noise  = ctx.createBufferSource();
+  const nGain  = ctx.createGain();
+  nGain.gain.setValueAtTime(0.06, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  noise.buffer = buf;
+  noise.connect(nGain); nGain.connect(master);
+  noise.start(now); noise.stop(now + 0.14);
 }
 
 /**
- * Genre-specific rhythmic pulse from a self-pulsing well.
- * Each genre has a distinct waveform and envelope so zones sound different.
+ * Ascending materialisation tone — a new well is being placed.
+ * Pitch rises to the new frequency, like something coming into existence.
  * @param {Object} audio
- * @param {number} freq   well's current frequency
- * @param {string} genre  genre key
- * @param {number} pan    stereo position -1..1
+ * @param {number} freq  the new well's target frequency
+ */
+export function playBuild(audio, freq) {
+  if (!audio?.ctx) return;
+  const { ctx, master } = audio;
+  const now = ctx.currentTime;
+
+  // Rising sweep to target pitch
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(28, now);
+  osc.frequency.exponentialRampToValueAtTime(freq, now + 0.5);
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.13, now + 0.15);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+  osc.connect(gain); gain.connect(master);
+  osc.start(now); osc.stop(now + 1.2);
+
+  // Shimmer — high harmonic
+  const osc2  = ctx.createOscillator();
+  const gain2 = ctx.createGain();
+  osc2.type = 'triangle';
+  osc2.frequency.value = freq * 3;
+  gain2.gain.setValueAtTime(0, now + 0.4);
+  gain2.gain.linearRampToValueAtTime(0.045, now + 0.55);
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+  osc2.connect(gain2); gain2.connect(master);
+  osc2.start(now + 0.4); osc2.stop(now + 1.3);
+}
+
+/**
+ * Genre-specific rhythmic pulse (used if self-pulse system is active).
  */
 export function playGenrePulse(audio, freq, genre, pan = 0) {
   if (!audio?.ctx) return;
@@ -98,7 +105,7 @@ export function playGenrePulse(audio, freq, genre, pan = 0) {
     boombap: { type: 'triangle', gain: 0.060, attack: 0.014, decay: 0.34 },
     techno:  { type: 'sawtooth', gain: 0.060, attack: 0.003, decay: 0.10 },
   };
-  const cfg = cfgs[genre] || cfgs.house;
+  const cfg    = cfgs[genre] || cfgs.house;
   const osc    = ctx.createOscillator();
   const gain   = ctx.createGain();
   const panner = ctx.createStereoPanner();
