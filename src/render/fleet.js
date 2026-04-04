@@ -23,13 +23,12 @@ export function drawFleet(ctx, s) {
   }
 
   // Phase-specific effects (drawn behind ship)
-  if (fl.phase === 'scanning') _drawScanBeam(ctx, v, s);
-  if (fl.phase === 'eating')   _drawTractorBeam(ctx, v, fl, s);
+  if (fl.phase === 'eating')    _drawTractorBeams(ctx, v, fl, s);
   if (fl.phase === 'digesting') _drawDigestAura(ctx, v, s);
-  if (fl.phase === 'building')  _drawBuildBeam(ctx, v, fl, s);
+  if (fl.phase === 'building')  _drawBuildBeams(ctx, v, fl, s);
 
-  // Orbit ring (scanning + eating)
-  if (fl.phase === 'scanning' || fl.phase === 'orbiting') {
+  // Orbit ring (arriving phase)
+  if (fl.phase === 'arriving') {
     ctx.save();
     ctx.beginPath();
     ctx.arc(s.width / 2, s.height / 2, v.orbitRadius, 0, Math.PI * 2);
@@ -51,106 +50,55 @@ export function drawFleet(ctx, s) {
 
 // ─── Phase visuals ────────────────────────────────────────────────────────────
 
-function _drawScanBeam(ctx, v, s) {
-  // Rotating sweep line from ship to canvas edge
-  const angle   = v.scanAngle ?? v.orbitAngle;
-  const len = Math.max(s.width, s.height) * 1.1;
+/** Parallel tractor beams to all wells being eaten simultaneously. */
+function _drawTractorBeams(ctx, v, fl, s) {
+  if (!fl.wellsToEat?.length) return;
+
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(v.x, v.y);
-  ctx.lineTo(v.x + Math.cos(angle) * len, v.y + Math.sin(angle) * len);
+  for (const w of fl.wellsToEat) {
+    if (!s.wells.includes(w)) continue;
+    if ((w._eatDelay ?? 0) > 0) continue; // not started yet
 
-  // Soft gradient along sweep
-  const grad = ctx.createLinearGradient(v.x, v.y, v.x + Math.cos(angle) * len, v.y + Math.sin(angle) * len);
-  grad.addColorStop(0,   `rgba(${v.rgb},0.28)`);
-  grad.addColorStop(0.3, `rgba(${v.rgb},0.08)`);
-  grad.addColorStop(1,   `rgba(${v.rgb},0)`);
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+    // Wide soft beam
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(w.x, w.y);
+    ctx.strokeStyle = `rgba(${v.rgb},0.06)`;
+    ctx.lineWidth = 12;
+    ctx.stroke();
 
-  // Fan glow — triangle wedge
-  ctx.beginPath();
-  const fanAngle = 0.12;
-  ctx.moveTo(v.x, v.y);
-  ctx.lineTo(v.x + Math.cos(angle - fanAngle) * len * 0.6, v.y + Math.sin(angle - fanAngle) * len * 0.6);
-  ctx.lineTo(v.x + Math.cos(angle + fanAngle) * len * 0.6, v.y + Math.sin(angle + fanAngle) * len * 0.6);
-  ctx.closePath();
-  ctx.fillStyle = `rgba(${v.rgb},0.03)`;
-  ctx.fill();
-  ctx.restore();
+    // Bright core beam pulsing with eatT
+    const t = w._eatT ?? 0;
+    const alpha = (0.35 + Math.sin(v.beamPulse * 4 + t * 6) * 0.2).toFixed(2);
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(w.x, w.y);
+    ctx.strokeStyle = `rgba(${v.rgb},${alpha})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-  // Mark wells scheduled for eating with a faint target ring
-  if (s.fleet.wellsToEat?.length) {
-    for (const w of s.fleet.wellsToEat) {
-      ctx.save();
-      const pulse = (Math.sin(s.time * 4) + 1) / 2;
+    // Particles streaming along each beam
+    for (let i = 0; i < 4; i++) {
+      const pt = ((s.time * 1.6 + i * 0.25 + t) % 1);
+      const px = w.x + (v.x - w.x) * pt;
+      const py = w.y + (v.y - w.y) * pt;
       ctx.beginPath();
-      ctx.arc(w.x, w.y, (w.mass || 50) / 2 + 16 + pulse * 6, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${v.rgb},${(0.2 + pulse * 0.2).toFixed(2)})`;
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([3, 5]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
+      ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${v.rgb},${(0.65 * Math.sin(pt * Math.PI)).toFixed(2)})`;
+      ctx.fill();
     }
   }
-}
 
-function _drawTractorBeam(ctx, v, fl, s) {
-  const w = fl.currentEatWell;
-  if (!w || !s.wells.includes(w)) return;
-
-  // Bright focused beam to the well being eaten
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(v.x, v.y);
-  ctx.lineTo(w.x, w.y);
-  ctx.strokeStyle = `rgba(${v.rgb},0.08)`;
-  ctx.lineWidth = 14;
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(v.x, v.y);
-  ctx.lineTo(w.x, w.y);
-  const alpha = 0.5 + Math.sin(v.beamPulse * 4) * 0.25;
-  ctx.strokeStyle = `rgba(${v.rgb},${alpha.toFixed(2)})`;
-  ctx.lineWidth = 1.8;
-  ctx.stroke();
-
-  // Particles streaming from well toward ship
-  for (let i = 0; i < 5; i++) {
-    const t   = ((s.time * 1.4 + i * 0.2) % 1);
-    const px  = w.x + (v.x - w.x) * t;
-    const py  = w.y + (v.y - w.y) * t;
-    const pa  = (0.7 * Math.sin(t * Math.PI)).toFixed(2);
-    ctx.beginPath();
-    ctx.arc(px, py, 1.6, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${v.rgb},${pa})`;
-    ctx.fill();
-  }
-
-  // Progress ring around ship
-  const prog = fl.eatProgress;
+  // Pulsing ring on ship hull showing absorption
+  const absorbed = fl.absorbedWells?.length ?? 0;
+  const total    = absorbed + fl.wellsToEat.length;
+  const prog     = total > 0 ? absorbed / total : 0;
   ctx.beginPath();
   ctx.arc(v.x, v.y, 26, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
   ctx.strokeStyle = `rgba(${v.rgb},0.55)`;
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
-
-  // Mark remaining targets faintly
-  for (const tw of fl.wellsToEat) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(tw.x, tw.y, (tw.mass || 50) / 2 + 12, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${v.rgb},0.1)`;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 6]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
 }
 
 function _drawDigestAura(ctx, v, s) {
@@ -173,40 +121,43 @@ function _drawDigestAura(ctx, v, s) {
   ctx.fillStyle = grad; ctx.fill();
 }
 
-function _drawBuildBeam(ctx, v, fl, s) {
-  const spec = fl.buildQueue[fl.currentBuildIdx];
-  if (!spec) return;
-
-  // Ship points at build target with a gentle beam
-  const dx = spec.targetX - v.x, dy = spec.targetY - v.y;
-  const alpha = (0.15 + Math.sin(v.beamPulse * 3) * 0.08).toFixed(2);
+/** Parallel build beams to all positions being materialized. */
+function _drawBuildBeams(ctx, v, fl, s) {
+  if (!fl.buildQueue?.length) return;
 
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(v.x, v.y);
-  ctx.lineTo(spec.targetX, spec.targetY);
-  ctx.strokeStyle = `rgba(${v.rgb},${alpha})`;
-  ctx.lineWidth = 1.4;
-  ctx.stroke();
+  for (const spec of fl.buildQueue) {
+    if (spec.delay > 0 && !spec._spawnDone) continue;
 
-  // Particles flowing from ship toward build point
-  for (let i = 0; i < 4; i++) {
-    const t  = ((s.time * 0.9 + i * 0.25) % 1);
-    const px = v.x + dx * t, py = v.y + dy * t;
-    ctx.beginPath();
-    ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${v.rgb},${(0.55 * Math.sin(t * Math.PI)).toFixed(2)})`;
-    ctx.fill();
-  }
+    const dx = spec.targetX - v.x, dy = spec.targetY - v.y;
+    const alpha = (0.12 + Math.sin(v.beamPulse * 3) * 0.06).toFixed(2);
 
-  // Growing ring at build target
-  if (fl.buildWell) {
-    const r = (fl.buildProgress - 0.3) / 0.7 * 35;
     ctx.beginPath();
-    ctx.arc(spec.targetX, spec.targetY, Math.max(1, r), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${v.rgb},0.35)`;
-    ctx.lineWidth = 1.5;
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(spec.targetX, spec.targetY);
+    ctx.strokeStyle = `rgba(${v.rgb},${alpha})`;
+    ctx.lineWidth = 1.2;
     ctx.stroke();
+
+    // Particles flowing ship → build point
+    for (let i = 0; i < 3; i++) {
+      const t  = ((s.time * 0.85 + i * 0.33) % 1);
+      const px = v.x + dx * t, py = v.y + dy * t;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${v.rgb},${(0.5 * Math.sin(t * Math.PI)).toFixed(2)})`;
+      ctx.fill();
+    }
+
+    // Growing ring at target as it materializes
+    if (spec._spawnDone && spec._buildT > 0) {
+      const r = spec._buildT * 30;
+      ctx.beginPath();
+      ctx.arc(spec.targetX, spec.targetY, Math.max(1, r), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${v.rgb},${(0.4 * spec._buildT).toFixed(2)})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -217,7 +168,7 @@ function _drawVisitorLabel(ctx, fl, s) {
   const v = fl.visitor;
   if (v.state === 'warping') return;
   const labels = {
-    scanning:  'SCANNING',
+    arriving:  'ARRIVING',
     eating:    'CONSUMING',
     digesting: 'PROCESSING',
     building:  'CREATING',
@@ -236,9 +187,9 @@ function _drawVisitorLabel(ctx, fl, s) {
 function _drawVisitorHUD(ctx, fl, s) {
   const v = fl.visitor;
   const prog = fl.phase === 'eating'
-    ? `${fl.absorbedWells.length + (fl.currentEatWell ? 1 : 0)} / ${fl.absorbedWells.length + fl.wellsToEat.length + (fl.currentEatWell ? 1 : 0)}`
+    ? `${fl.absorbedWells.length} / ${fl.absorbedWells.length + fl.wellsToEat.length}`
     : fl.phase === 'building'
-    ? `${fl.currentBuildIdx} / ${fl.buildQueue.length}`
+    ? `${fl.buildQueue.filter(b => b._spawnDone).length} / ${fl.buildQueue.length}`
     : '';
 
   ctx.save();
