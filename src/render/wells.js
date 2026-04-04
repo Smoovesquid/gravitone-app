@@ -76,6 +76,22 @@ export function drawWells(ctx, s) {
       ctx.stroke();
     }
 
+    // Fleet battle control ring (genre-colored pulsing halo)
+    if (w.fleetOwnerRgb) {
+      const pulse = (Math.sin(s.time * 4 + w.x * 0.01) + 1) / 2;
+      const ringR = (w.mass || 50) / 2 + 20;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${w.fleetOwnerRgb},${(0.18 + pulse * 0.32).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Inner dot pulse
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, 4 + pulse * 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${w.fleetOwnerRgb},${(0.1 + pulse * 0.2).toFixed(2)})`;
+      ctx.fill();
+    }
+
     if (needsTransform) {
       ctx.restore();
     }

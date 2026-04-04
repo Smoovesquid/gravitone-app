@@ -44,6 +44,10 @@ import { createCruiser, tickCruiser } from "./objects/cruiser";
 import { startCruiserHum, stopCruiserHum } from "./audio/cruiser";
 import { drawCruiser } from "./render/cruiser";
 
+// Fleet Battle
+import { createFleet, tickFleet } from "./objects/fleet";
+import { drawFleet } from "./render/fleet";
+
 // Input
 import { createKeyHandler } from "./input/keyboard";
 
@@ -108,6 +112,7 @@ export default function Gravitone() {
     lastInteraction: 0,   // s.time at last user click/key — for idle detection
     cruiser: null,        // active CruiserState | null
     cruiserHumHandle: null,
+    fleet: null,          // active FleetBattle state | null
   });
 
   const undoStackRef = useRef([]);
@@ -257,6 +262,20 @@ export default function Gravitone() {
     }
   }, []);
 
+  // Toggle fleet battle on/off — called by "B" key
+  const toggleFleet = useCallback(() => {
+    const s = stateRef.current;
+    if (s.fleet && s.fleet.active) {
+      s.fleet.active = false;
+      addToast('Fleet battle ended');
+    } else {
+      // Exit cruiser if active
+      if (s.cruiser && s.cruiser.state !== 'exiting') s.cruiser.state = 'exiting';
+      s.fleet = createFleet(s.width, s.height);
+      addToast('⚔ FLEET BATTLE BEGINS — Press B to end');
+    }
+  }, [addToast]);
+
   // ===== KEYBOARD =====
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -267,11 +286,12 @@ export default function Gravitone() {
       cycleScale, cycleInstrument, cycleBpm,
       undoLastWell, clearAll, addToast,
       onToggleCruiser: toggleCruiser,
+      onToggleFleet: toggleFleet,
     });
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undoLastWell, clearAll, addToast, toggleCruiser]);
+  }, [undoLastWell, clearAll, addToast, toggleCruiser, toggleFleet]);
 
   // ===== MAIN LOOP =====
   useEffect(() => {
@@ -396,6 +416,13 @@ export default function Gravitone() {
         s.lastInteraction = s.time;
       }
 
+      // ---- Fleet Battle tick ----
+      if (s.fleet) {
+        tickFleet(s, dt, addToastRef.current);
+        // Clean up finished battles
+        if (!s.fleet.active) s.fleet = null;
+      }
+
       // ---- Physics ----
       tickParticles(s, dt);
       tickAliens(s, dt);
@@ -413,6 +440,7 @@ export default function Gravitone() {
       drawAliens(ctx, s);
       drawParticles(ctx, s);
       drawCruiser(ctx, s);
+      drawFleet(ctx, s);
       drawBeatIndicator(ctx, s, sixteenthDur);
 
       rafRef.current = requestAnimationFrame(loop);

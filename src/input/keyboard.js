@@ -22,6 +22,7 @@ const NOTE_KEYS = ["q", "w", "e", "r", "t", "y", "u", "i"];
  *   clearAll: () => void,
  *   addToast: (msg: string) => void,
  *   onToggleCruiser?: () => void,
+ *   onToggleFleet?: () => void,
  * }} deps
  */
 export function createKeyHandler(deps) {
@@ -30,7 +31,7 @@ export function createKeyHandler(deps) {
     setWellMode, setSelectedNoteIdx, setSelectedDrumType,
     setQuantize, setLoopsPaused, setShowJournal,
     cycleScale, cycleInstrument, cycleBpm,
-    undoLastWell, clearAll, addToast, onToggleCruiser,
+    undoLastWell, clearAll, addToast, onToggleCruiser, onToggleFleet,
   } = deps;
 
   return (e) => {
@@ -40,8 +41,8 @@ export function createKeyHandler(deps) {
     // Track last interaction for idle detection
     s.lastInteraction = s.time;
 
-    // Any keypress dismisses an active cruiser (except 9 which toggles it)
-    if (s.cruiser && s.cruiser.state !== 'exiting' && key !== '9') {
+    // Any keypress dismisses an active cruiser (except 9 which toggles it, b which starts fleet)
+    if (s.cruiser && s.cruiser.state !== 'exiting' && key !== '9' && key !== 'b') {
       s.cruiser.state = 'exiting';
     }
 
@@ -55,6 +56,7 @@ export function createKeyHandler(deps) {
     if (key === "7") { s.wellMode = "neutronstar"; setWellMode("neutronstar"); return; }
     if (key === "8") { s.wellMode = "quasar";      setWellMode("quasar");      return; }
     if (key === "9") { onToggleCruiser?.(); return; }
+    if (key === "b") { onToggleFleet?.(); return; }
 
     // Q-I: note select (tone mode) or drum select (drum/looper mode)
     const qiIdx = NOTE_KEYS.indexOf(key);
