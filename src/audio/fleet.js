@@ -71,6 +71,28 @@ export function playWellClaim(audio) {
   });
 }
 
+/**
+ * Pitched "morph" sound when a well changes genre ownership.
+ * A gliding tone sweeps up to signal the capture.
+ * @param {Object} audio
+ * @param {string} rgb  e.g. '255,34,68' — used only for future filter tint ideas
+ */
+export function playWellTransform(audio, rgb) {  // eslint-disable-line no-unused-vars
+  if (!audio?.ctx) return;
+  const { ctx, master } = audio;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(220, now);
+  osc.frequency.exponentialRampToValueAtTime(880, now + 0.22);
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.12, now + 0.04);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+  osc.connect(gain); gain.connect(master);
+  osc.start(now); osc.stop(now + 0.4);
+}
+
 /** Dramatic warp-in whoosh when a ship enters. */
 export function playWarpIn(audio) {
   if (!audio?.ctx) return;

@@ -34,6 +34,9 @@ export function createShip(genre, x, y) {
     _targetX: null,
     _targetY: null,
     _driftTarget: null,
+    // Zone identity (assigned by createFleet)
+    homeZoneX: null,
+    homeZoneIdx: 0,
     // Explosion state
     explosionParticles: [],
     explodeTimer: 0,
@@ -65,24 +68,37 @@ export function steerShip(ship, tx, ty, dt, speed = 28) {
 }
 
 /**
- * Find the best well to target: unclaimed first, then enemy-owned.
+ * Find the best well to target.
+ * Zone bias: ships prefer wells near their home X zone.
+ * In combat, contested enemy wells score higher than distant unclaimed ones.
  * @param {Object} ship
  * @param {Object[]} wells
  * @param {Map<number,string>} wellOwnership
+ * @param {number} [canvasWidth=1200]
  * @returns {number} well index or -1
  */
-export function findTargetWell(ship, wells, wellOwnership) {
+export function findTargetWell(ship, wells, wellOwnership, canvasWidth = 1200) {
   let best = -1, bestScore = Infinity;
+  const homeX = ship.homeZoneX ?? (canvasWidth / 2);
+
   for (let i = 0; i < wells.length; i++) {
     const w = wells[i];
     if (!w || w.removing) continue;
     if (w.type === 'blackhole' || w.type === 'station') continue;
     const owner = wellOwnership.get(i);
     if (owner === ship.id) continue;
+
     const dx = w.x - ship.x, dy = w.y - ship.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    // Prefer enemy wells in combat (closer = better steal opportunity)
-    const score = owner ? dist * 0.55 : dist;
+
+    // Zone affinity: wells near home zone score better (up to 40% bonus)
+    const zoneDist = Math.abs(w.x - homeX);
+    const zoneMult = 1 + (zoneDist / canvasWidth) * 0.4;
+
+    // Enemy wells are worth stealing (score multiplier < 1)
+    const ownerMult = owner ? 0.55 : 1.0;
+
+    const score = dist * zoneMult * ownerMult;
     if (score < bestScore) { bestScore = score; best = i; }
   }
   return best;

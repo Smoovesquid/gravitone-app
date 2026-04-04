@@ -92,6 +92,20 @@ export function drawWells(ctx, s) {
       ctx.fill();
     }
 
+    // Contested well — two ships fighting for this well — rapid oscillation
+    if (w.fleetContested && w.fleetOwnerRgb && w.fleetContestedRgb) {
+      const flicker = Math.sin(s.time * 18) > 0;
+      const rgb = flicker ? w.fleetOwnerRgb : w.fleetContestedRgb;
+      const ringR = (w.mass || 50) / 2 + 28;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${rgb},0.55)`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     if (needsTransform) {
       ctx.restore();
     }

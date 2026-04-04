@@ -4,34 +4,46 @@
 
 import { GENRE_KEYS } from '../data/genres';
 import { createShip, steerShip, findTargetWell, tickShipExplosion } from './ship';
-import { playExplosion, playWellClaim, playMissileFire } from '../audio/fleet';
+import { transformWell, restoreWells, removeFleetWells } from './battleWells';
+import { playExplosion, playMissileFire, playWellTransform } from '../audio/fleet';
 
-const CLAIM_TIME = 3.5;   // seconds beam must hold to claim a well
+const CLAIM_TIME = 3.5;
 const MISSILE_SPD = 135;
+const REPULSE_DIST = 85;
 
 export function createFleet(cw, ch) {
   const genres = [...GENRE_KEYS].sort(() => Math.random() - 0.5).slice(0, 3);
-  const edgePositions = [
-    { x: cw * 0.2, y: -110 },
-    { x: cw * 0.8, y: -110 },
-    { x: cw * 0.5, y: ch + 110 },
-  ];
+  // Three distinct spawn edges, three distinct home zones
+  const spawns = [{ x: cw * 0.15, y: -110 }, { x: cw * 0.85, y: -110 }, { x: cw * 0.5, y: ch + 110 }];
+  const zoneX  = [cw * 0.22,               cw * 0.78,               cw * 0.5              ];
+
   return {
     ships: genres.map((g, i) => {
-      const ship = createShip(g, edgePositions[i].x, edgePositions[i].y);
-      ship._targetX = cw * (0.22 + i * 0.28);
-      ship._targetY = ch * (0.25 + Math.random() * 0.18);
+      const ship = createShip(g, spawns[i].x, spawns[i].y);
+      ship._targetX    = zoneX[i];
+      ship._targetY    = ch * (0.28 + Math.random() * 0.16);
+      ship.homeZoneX   = zoneX[i];
+      ship.homeZoneIdx = i;
+      ship.missileTimer = 14 + i * 7;   // stagger so ships don't all fire simultaneously
       return ship;
     }),
     missiles: [],
-    wellOwnership: new Map(),   // wellIdx → shipId
-    beamAccum: new Map(),        // `${wellIdx}_${shipId}` → seconds
-    phase: 'claiming',           // 'claiming' | 'combat'
+    wellOwnership: new Map(),
+    beamAccum: new Map(),
+    phase: 'claiming',
     phaseTimer: 30,
     active: true,
-    screenFlash: null,           // { color, alpha }
+    screenFlash: null,
     victoryDeclared: false,
+    canvasWidth: cw,
+    canvasHeight: ch,
   };
+}
+
+/** Call when battle ends to restore the canvas to its pre-battle state. */
+export function cleanupFleet(s) {
+  restoreWells(s);
+  removeFleetWells(s);
 }
 
 export function tickFleet(s, dt, addToast) {
@@ -46,18 +58,21 @@ export function tickFleet(s, dt, addToast) {
   fl.phaseTimer -= dt;
   if (fl.phase === 'claiming' && fl.phaseTimer <= 0) {
     fl.phase = 'combat';
-    addToast('⚔ COMBAT PHASE — ships open fire');
+    addToast('⚔ COMBAT — ships open fire');
   }
+
+  // Clear contested flags each tick — re-set below when detected
+  for (const w of s.wells) { w.fleetContested = false; w.fleetContestedRgb = null; }
 
   for (const sh of fl.ships) _tickShip(sh, s, fl, dt, addToast);
   _tickMissiles(fl, s, dt, addToast);
 
-  // Sync ownership colors onto well objects (renderer reads these)
+  // Sync ownership colors + contested state to well objects
   for (let i = 0; i < s.wells.length; i++) {
     const ownerId = fl.wellOwnership.get(i);
     const owner = ownerId ? fl.ships.find(sh => sh.id === ownerId) : null;
     s.wells[i].fleetOwnerColor = owner?.color ?? null;
-    s.wells[i].fleetOwnerRgb = owner?.rgb ?? null;
+    s.wells[i].fleetOwnerRgb   = owner?.rgb ?? null;
   }
 
   // Victory: one ship standing
@@ -66,7 +81,11 @@ export function tickFleet(s, dt, addToast) {
     fl.victoryDeclared = true;
     alive[0].state = 'victory';
     alive[0].victoryTimer = 6;
-    addToast(`♫ ${alive[0].label} DOMINATES THE CANVAS`);
+    // Crescendo — boost winner's wells
+    for (const wi of alive[0].controlledWells) {
+      if (s.wells[wi]) s.wells[wi].mass = Math.min((s.wells[wi].mass || 60) * 1.7, 190);
+    }
+    addToast(`♫ ${alive[0].label} DOMINATES`);
   }
   for (const sh of fl.ships) {
     if (sh.state === 'victory') { sh.victoryTimer -= dt; if (sh.victoryTimer <= 0) fl.active = false; }
@@ -80,7 +99,7 @@ function _tickShip(ship, s, fl, dt, addToast) {
   // Engine trail
   ship.trail.push({ x: ship.x, y: ship.y, life: 1 });
   for (let i = ship.trail.length - 1; i >= 0; i--) {
-    ship.trail[i].life -= dt * 3;
+    ship.trail[i].life -= dt * 3.2;
     if (ship.trail[i].life <= 0) ship.trail.splice(i, 1);
   }
   if (ship.trail.length > 18) ship.trail.splice(0, ship.trail.length - 18);
@@ -90,30 +109,57 @@ function _tickShip(ship, s, fl, dt, addToast) {
     steerShip(ship, ship._targetX, ship._targetY, dt, 95);
     if (Math.hypot(ship._targetX - ship.x, ship._targetY - ship.y) < 22) {
       ship.state = 'active';
-      addToast(`▶ ${ship.label} WARPS IN`);
+      addToast(`▶ ${ship.label}`);
     }
     return;
   }
   if (ship.state !== 'active') return;
 
+  // Ship-to-ship repulsion (prevents stacking)
+  for (const other of fl.ships) {
+    if (other.id === ship.id || other.state === 'dead') continue;
+    const rdx = ship.x - other.x, rdy = ship.y - other.y;
+    const rd = Math.sqrt(rdx * rdx + rdy * rdy);
+    if (rd < REPULSE_DIST && rd > 0) {
+      const f = ((REPULSE_DIST - rd) / REPULSE_DIST) * 55 * dt;
+      ship.x += (rdx / rd) * f;
+      ship.y += (rdy / rd) * f;
+    }
+  }
+
   // Beam targeting + well claiming
-  const ti = findTargetWell(ship, s.wells, fl.wellOwnership);
+  const ti = findTargetWell(ship, s.wells, fl.wellOwnership, s.width);
   ship.targetWellIdx = ti;
+
   if (ti >= 0 && s.wells[ti]) {
-    steerShip(ship, s.wells[ti].x, s.wells[ti].y - 115, dt, 26);
+    steerShip(ship, s.wells[ti].x, s.wells[ti].y - 110, dt, 26);
     const key = `${ti}_${ship.id}`;
     fl.beamAccum.set(key, (fl.beamAccum.get(key) || 0) + dt);
+
+    // Mark contested if another ship is also beaming this well
+    const rival = fl.ships.find(sh => sh.id !== ship.id && fl.beamAccum.has(`${ti}_${sh.id}`));
+    if (rival) {
+      s.wells[ti].fleetContested = true;
+      s.wells[ti].fleetContestedRgb = rival.rgb;
+    }
+
     if (fl.beamAccum.get(key) >= CLAIM_TIME) {
       const prev = fl.wellOwnership.get(ti);
       if (prev && prev !== ship.id) fl.ships.find(sh => sh.id === prev)?.controlledWells.delete(ti);
       fl.wellOwnership.set(ti, ship.id);
       ship.controlledWells.add(ti);
       fl.beamAccum.delete(key);
-      if (s.audioCtx) playWellClaim(s.audioCtx);
+      transformWell(s.wells[ti], ship);
+      if (s.audioCtx) playWellTransform(s.audioCtx, ship.rgb);
     }
   } else {
-    if (!ship._driftTarget || Math.random() < dt * 0.22) {
-      ship._driftTarget = { x: s.width * (0.18 + Math.random() * 0.64), y: s.height * (0.18 + Math.random() * 0.52) };
+    // Zone-bounded drift when no target
+    const zx = ship.homeZoneX ?? (s.width * 0.5);
+    if (!ship._driftTarget || Math.random() < dt * 0.2) {
+      ship._driftTarget = {
+        x: zx + (Math.random() - 0.5) * s.width * 0.28,
+        y: s.height * (0.22 + Math.random() * 0.56),
+      };
     }
     steerShip(ship, ship._driftTarget.x, ship._driftTarget.y, dt, 18);
   }
@@ -121,11 +167,10 @@ function _tickShip(ship, s, fl, dt, addToast) {
   ship.x = Math.max(55, Math.min(s.width - 55, ship.x));
   ship.y = Math.max(55, Math.min(s.height - 95, ship.y));
 
-  // Prune wells that no longer exist
+  // Prune dead wells
   for (const wi of [...ship.controlledWells]) {
     if (!s.wells[wi] || s.wells[wi].removing) {
-      ship.controlledWells.delete(wi);
-      fl.wellOwnership.delete(wi);
+      ship.controlledWells.delete(wi); fl.wellOwnership.delete(wi);
     }
   }
 
@@ -158,12 +203,10 @@ function _tickMissiles(fl, s, dt, addToast) {
       tgt.hp = Math.max(0, tgt.hp - 1);
       if (tgt.controlledWells.size > 0) {
         const wi = [...tgt.controlledWells][0];
-        tgt.controlledWells.delete(wi);
-        fl.wellOwnership.delete(wi);
+        tgt.controlledWells.delete(wi); fl.wellOwnership.delete(wi);
       }
       if (tgt.hp <= 0) _destroyShip(tgt, fl, s, addToast);
-      fl.missiles.splice(i, 1);
-      continue;
+      fl.missiles.splice(i, 1); continue;
     }
 
     m.trail.push({ x: m.x, y: m.y });
@@ -175,8 +218,7 @@ function _tickMissiles(fl, s, dt, addToast) {
 }
 
 function _destroyShip(ship, fl, s, addToast) {
-  ship.state = 'exploding';
-  ship.explodeTimer = 3;
+  ship.state = 'exploding'; ship.explodeTimer = 3;
   for (let i = 0; i < 90; i++) {
     const a = Math.random() * Math.PI * 2, spd = 25 + Math.random() * 130;
     ship.explosionParticles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 1 });
