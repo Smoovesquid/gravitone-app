@@ -65,6 +65,17 @@ export function drawWells(ctx, s) {
       _drawToneWell(ctx, s, w);
     }
 
+    // Cruiser tractor-beam control ring (pulsing yellowish-green halo)
+    if (w.cruiserControlled && s.cruiser && s.cruiser.state === 'active') {
+      const pulse = (Math.sin(s.cruiser.beamPulsePhase + w.x * 0.008) + 1) / 2;
+      const ringR = (w.mass || 50) / 2 + 14;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(180,255,100,${(0.14 + pulse * 0.26).toFixed(2)})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     if (needsTransform) {
       ctx.restore();
     }

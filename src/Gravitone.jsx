@@ -38,6 +38,11 @@ import { createToneWell, createDrumWell, createBlackhole, createLooperWell, crea
 import { createPulsar, tickPulsars } from "./objects/pulsar";
 import { createNeutronStar, tickNeutronStars } from "./objects/neutronStar";
 import { createQuasar, tickQuasars, disposeQuasar } from "./objects/quasar";
+import { createCruiser, tickCruiser } from "./objects/cruiser";
+
+// Cruiser audio + render
+import { startCruiserHum, stopCruiserHum } from "./audio/cruiser";
+import { drawCruiser } from "./render/cruiser";
 
 // Input
 import { createKeyHandler } from "./input/keyboard";
@@ -100,6 +105,9 @@ export default function Gravitone() {
     hoveredWellId: null,
     wanderers: [],
     draggingWellIdx: null,
+    lastInteraction: 0,   // s.time at last user click/key — for idle detection
+    cruiser: null,        // active CruiserState | null
+    cruiserHumHandle: null,
   });
 
   const undoStackRef = useRef([]);
@@ -233,6 +241,22 @@ export default function Gravitone() {
     stateRef.current.bpm = BPM_PRESETS[idx]; setBpm(BPM_PRESETS[idx]);
   }, []);
 
+  // Stable ref to addToast for use inside the RAF loop (avoids stale closure)
+  const addToastRef = useRef(addToast);
+  useEffect(() => { addToastRef.current = addToast; }, [addToast]);
+
+  // Toggle cruiser on/off — called by keyboard shortcut "9" and toolbar button
+  const toggleCruiser = useCallback(() => {
+    const s = stateRef.current;
+    if (s.cruiser && s.cruiser.state !== 'exiting') {
+      s.cruiser.state = 'exiting';
+      s.lastInteraction = s.time;
+    } else if (!s.cruiser) {
+      s.cruiser = createCruiser(s.width, s.height);
+      if (s.audioCtx) s.cruiserHumHandle = startCruiserHum(s.audioCtx);
+    }
+  }, []);
+
   // ===== KEYBOARD =====
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -242,11 +266,12 @@ export default function Gravitone() {
       setQuantize, setLoopsPaused, setShowJournal,
       cycleScale, cycleInstrument, cycleBpm,
       undoLastWell, clearAll, addToast,
+      onToggleCruiser: toggleCruiser,
     });
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undoLastWell, clearAll, addToast]);
+  }, [undoLastWell, clearAll, addToast, toggleCruiser]);
 
   // ===== MAIN LOOP =====
   useEffect(() => {
@@ -351,6 +376,26 @@ export default function Gravitone() {
         }
       }
 
+      // ---- Idle detection → spawn cruiser after 60s ----
+      if (!s.cruiser && s.lastInteraction > 0) {
+        const idle = s.time - s.lastInteraction;
+        if (idle >= 60) {
+          s.cruiser = createCruiser(s.width, s.height);
+          if (s.audioCtx) s.cruiserHumHandle = startCruiserHum(s.audioCtx);
+          s.lastInteraction = s.time; // avoid re-triggering immediately
+        }
+      }
+
+      // ---- Cruiser tick ----
+      const hadCruiser = !!s.cruiser;
+      tickCruiser(s, dt, addToastRef.current);
+      if (hadCruiser && !s.cruiser) {
+        // Cruiser just finished exiting — stop hum, reset idle timer
+        stopCruiserHum(s.cruiserHumHandle, s.audioCtx);
+        s.cruiserHumHandle = null;
+        s.lastInteraction = s.time;
+      }
+
       // ---- Physics ----
       tickParticles(s, dt);
       tickAliens(s, dt);
@@ -367,6 +412,7 @@ export default function Gravitone() {
       drawWells(ctx, s);
       drawAliens(ctx, s);
       drawParticles(ctx, s);
+      drawCruiser(ctx, s);
       drawBeatIndicator(ctx, s, sixteenthDur);
 
       rafRef.current = requestAnimationFrame(loop);
@@ -391,6 +437,14 @@ export default function Gravitone() {
     const pos = getPos(e);
     const s = stateRef.current;
     s.mouseDown = true; s.mouseX = pos.x; s.mouseY = pos.y; s.holdStart = s.time;
+    s.lastInteraction = s.time;
+
+    // Click dismisses active cruiser — don't create a well this frame
+    if (s.cruiser && s.cruiser.state !== 'exiting') {
+      s.cruiser.state = 'exiting';
+      s.mouseDown = false;
+      return;
+    }
 
     // Check if clicking on an existing object — enter drag mode
     s.draggingWellIdx = null;
