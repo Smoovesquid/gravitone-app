@@ -37,20 +37,24 @@
     "mac": {
       "target": ["dmg"],
       "category": "public.app-category.music",
+      "icon": "assets/icon.icns",
       "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": "Timothy Smith (S9HS4UWH69)",
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist"
     },
     "dmg": {
       "title": "Gravitone",
-      "backgroundColor": "#06060c"
+      "backgroundColor": "#06060c",
+      "icon": "assets/icon.icns"
     },
     "files": [
       "build/**/*",
       "public/electron.js"
     ],
     "directories": {
-      "buildResources": "build"
+      "buildResources": "assets"
     }
   },
   "eslintConfig": {
