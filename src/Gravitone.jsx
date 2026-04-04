@@ -46,7 +46,6 @@ import { drawCruiser } from "./render/cruiser";
 
 // Fleet Battle
 import { createFleet, tickFleet, cleanupFleet } from "./objects/fleet";
-import { initFleetWells } from "./objects/battleWells";
 import { drawFleet } from "./render/fleet";
 
 // Input
@@ -263,20 +262,18 @@ export default function Gravitone() {
     }
   }, []);
 
-  // Toggle fleet battle on/off — called by "B" key
+  // Toggle alien visitation on/off — called by "B" key
   const toggleFleet = useCallback(() => {
     const s = stateRef.current;
     if (s.fleet && s.fleet.active) {
       cleanupFleet(s);
       s.fleet = null;
       setWellCount(s.wells.length);
-      addToast('Fleet battle ended');
+      addToast('Visitors departed');
     } else {
       if (s.cruiser && s.cruiser.state !== 'exiting') s.cruiser.state = 'exiting';
       s.fleet = createFleet(s.width, s.height);
-      initFleetWells(s, s.fleet);   // spawn territory wells across canvas
-      setWellCount(s.wells.length);
-      addToast('⚔ FLEET BATTLE BEGINS — Press B to end');
+      addToast('♪ Galactic session open — visitors incoming');
     }
   }, [addToast]);
 

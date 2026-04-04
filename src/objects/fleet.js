@@ -1,262 +1,201 @@
 /**
- * @fileoverview Fleet battle management — ship ticking, missiles, well ownership.
+ * @fileoverview Alien Visitation — galactic touring musicians visit one at a time.
+ * State machine: gap → arriving → orbiting → session → departing → gap → …
+ * Each visitor selects wells, runs a musical session, then permanently teaches
+ * those wells a new rhythmic behavior before departing.
  */
 
-import { GENRE_KEYS } from '../data/genres';
-import { createShip, steerShip, findTargetWell, tickShipExplosion } from './ship';
-import { transformWell, restoreWells, removeFleetWells } from './battleWells';
-import { playExplosion, playMissileFire, playWellTransform, playGenrePulse, playBattleTension, playVictoryFanfare } from '../audio/fleet';
-import { GENRES } from '../data/genres';
+import { GENRE_KEYS, GENRES } from '../data/genres';
+import { createShip, steerShip } from './ship';
+import { selectSessionWells, teachWell, restoreWells } from './battleWells';
+import { playGenrePulse, playSessionStart, playTeachWell, playWarpIn } from '../audio/fleet';
 
-const CLAIM_TIME = 3.5;
-const MISSILE_SPD = 135;
-const REPULSE_DIST = 85;
+// Phase durations [min, max] in seconds
+const DUR = {
+  gap:       [10, 18],
+  arriving:  [ 4,  4],
+  orbiting:  [ 5,  8],
+  session:   [28, 45],
+  departing: [ 3,  3],
+};
+const rand = ([lo, hi]) => lo + Math.random() * (hi - lo);
 
 export function createFleet(cw, ch) {
-  const genres = [...GENRE_KEYS].sort(() => Math.random() - 0.5).slice(0, 3);
-  // Three distinct spawn edges, three distinct home zones
-  const spawns = [{ x: cw * 0.15, y: -110 }, { x: cw * 0.85, y: -110 }, { x: cw * 0.5, y: ch + 110 }];
-  const zoneX  = [cw * 0.22,               cw * 0.78,               cw * 0.5              ];
-
   return {
-    ships: genres.map((g, i) => {
-      const ship = createShip(g, spawns[i].x, spawns[i].y);
-      ship._targetX    = zoneX[i];
-      ship._targetY    = ch * (0.28 + Math.random() * 0.16);
-      ship.homeZoneX   = zoneX[i];
-      ship.homeZoneIdx = i;
-      ship.missileTimer = 14 + i * 7;   // stagger so ships don't all fire simultaneously
-      return ship;
-    }),
-    missiles: [],
-    wellOwnership: new Map(),
-    beamAccum: new Map(),
-    phase: 'claiming',
-    phaseTimer: 30,
     active: true,
-    screenFlash: null,
-    victoryDeclared: false,
+    phase: 'gap',
+    phaseTimer: 3,          // short pause before first visitor
+    visitor: null,
+    genreQueue: [...GENRE_KEYS].sort(() => Math.random() - 0.5),
+    sessionWells: [],       // well indices currently in session
     canvasWidth: cw,
     canvasHeight: ch,
   };
 }
 
-/** Call when battle ends to restore the canvas to its pre-battle state. */
 export function cleanupFleet(s) {
   restoreWells(s);
-  removeFleetWells(s);
 }
 
 export function tickFleet(s, dt, addToast) {
   const fl = s.fleet;
   if (!fl?.active) return;
 
-  if (fl.screenFlash) {
-    fl.screenFlash.alpha -= dt * 1.8;
-    if (fl.screenFlash.alpha <= 0) fl.screenFlash = null;
-  }
-
-  fl.phaseTimer -= dt;
-  if (fl.phase === 'claiming' && fl.phaseTimer <= 0) {
-    fl.phase = 'combat';
-    addToast('⚔ COMBAT — ships open fire');
-  }
-
-  // Portamento: advance frequency glides on all wells
+  // Portamento — advance all in-flight frequency glides
   for (const w of s.wells) {
     if (w._freqGlideT != null && w._freqGlideT < 1) {
-      w._freqGlideT = Math.min(1, w._freqGlideT + dt * 1.82); // ~550ms
-      const t = 1 - (1 - w._freqGlideT) ** 3;                 // ease-out cubic
+      w._freqGlideT = Math.min(1, w._freqGlideT + dt * 1.82);
+      const t = 1 - (1 - w._freqGlideT) ** 3;        // ease-out cubic
       w.freq = w._freqFrom + (w._freqTarget - w._freqFrom) * t;
     }
   }
 
-  // Genre BPM entrainment: owned tone wells pulse at genre tempo in combat
-  if (fl.phase === 'combat') {
-    for (const ship of fl.ships) {
-      if (ship.state !== 'active' && ship.state !== 'victory') continue;
-      const bpm = GENRES[ship.genre]?.bpm ?? 120;
-      const period = 60 / bpm;
-      for (const wi of ship.controlledWells) {
-        const w = s.wells[wi];
-        if (!w || w.type !== 'tone') continue;
-        w._pulseAccum = (w._pulseAccum || 0) + dt;
-        if (w._pulseAccum >= period) {
-          w._pulseAccum -= period;
-          if (s.audioCtx) playGenrePulse(s.audioCtx, w.freq, ship.genre, (w.x / s.width) * 2 - 1);
-        }
+  // Self-pulse — taught behaviors fire independently forever
+  for (const w of s.wells) {
+    if (!w._selfPulses?.length) continue;
+    for (const p of w._selfPulses) {
+      p.accum = (p.accum || 0) + dt;
+      if (p.accum >= p.period) {
+        p.accum -= p.period;
+        if (s.audioCtx) playGenrePulse(s.audioCtx, w.freq, p.genre, (w.x / s.width) * 2 - 1);
       }
     }
   }
 
-  // Clear contested flags each tick — re-set below when detected
-  for (const w of s.wells) { w.fleetContested = false; w.fleetContestedRgb = null; }
+  fl.phaseTimer -= dt;
+  if (fl.visitor) _tickTrail(fl.visitor, dt);
 
-  for (const sh of fl.ships) _tickShip(sh, s, fl, dt, addToast);
-  _tickMissiles(fl, s, dt, addToast);
-
-  // Sync ownership colors + contested state to well objects
-  for (let i = 0; i < s.wells.length; i++) {
-    const ownerId = fl.wellOwnership.get(i);
-    const owner = ownerId ? fl.ships.find(sh => sh.id === ownerId) : null;
-    s.wells[i].fleetOwnerColor = owner?.color ?? null;
-    s.wells[i].fleetOwnerRgb   = owner?.rgb ?? null;
-  }
-
-  // Victory: one ship standing
-  const alive = fl.ships.filter(sh => sh.state === 'active');
-  if (!fl.victoryDeclared && alive.length === 1 && fl.ships.some(sh => sh.state === 'dead')) {
-    fl.victoryDeclared = true;
-    alive[0].state = 'victory';
-    alive[0].victoryTimer = 6;
-    // Crescendo — boost winner's wells
-    const winnerToneWells = [...alive[0].controlledWells].map(wi => s.wells[wi]).filter(w => w?.type === 'tone');
-    for (const w of winnerToneWells) w.mass = Math.min((w.mass || 60) * 1.7, 190);
-    // Victory fanfare in the winning genre
-    const rootFreq = winnerToneWells[0]?.freq ?? 220;
-    if (s.audioCtx) playVictoryFanfare(s.audioCtx, alive[0].genre, rootFreq);
-    addToast(`♫ ${alive[0].label} DOMINATES`);
-  }
-  for (const sh of fl.ships) {
-    if (sh.state === 'victory') { sh.victoryTimer -= dt; if (sh.victoryTimer <= 0) fl.active = false; }
-    tickShipExplosion(sh, dt);
+  switch (fl.phase) {
+    case 'gap':       _tickGap(fl, s, addToast);           break;
+    case 'arriving':  _tickArriving(fl, s, dt, addToast);  break;
+    case 'orbiting':  _tickOrbiting(fl, s, dt, addToast);  break;
+    case 'session':   _tickSession(fl, s, dt, addToast);   break;
+    case 'departing': _tickDeparting(fl, s, dt, addToast); break;
+    default: break;
   }
 }
 
-function _tickShip(ship, s, fl, dt, addToast) {
-  ship.beamPulse = (ship.beamPulse + dt * 3) % (Math.PI * 2);
+// ─── Phase handlers ───────────────────────────────────────────────────────────
 
-  // Engine trail
-  ship.trail.push({ x: ship.x, y: ship.y, life: 1 });
-  for (let i = ship.trail.length - 1; i >= 0; i--) {
-    ship.trail[i].life -= dt * 3.2;
-    if (ship.trail[i].life <= 0) ship.trail.splice(i, 1);
-  }
-  if (ship.trail.length > 18) ship.trail.splice(0, ship.trail.length - 18);
+function _tickGap(fl, s, addToast) {
+  if (fl.phaseTimer > 0) return;
 
-  if (ship.state === 'warping') {
-    ship.warpProgress = Math.min(1, ship.warpProgress + dt * 0.55);
-    steerShip(ship, ship._targetX, ship._targetY, dt, 95);
-    if (Math.hypot(ship._targetX - ship.x, ship._targetY - ship.y) < 22) {
-      ship.state = 'active';
-      addToast(`▶ ${ship.label}`);
-    }
-    return;
-  }
-  if (ship.state !== 'active') return;
+  const genre = fl.genreQueue.shift();
+  fl.genreQueue.push(genre); // cycle
 
-  // Ship-to-ship repulsion (prevents stacking)
-  for (const other of fl.ships) {
-    if (other.id === ship.id || other.state === 'dead') continue;
-    const rdx = ship.x - other.x, rdy = ship.y - other.y;
-    const rd = Math.sqrt(rdx * rdx + rdy * rdy);
-    if (rd < REPULSE_DIST && rd > 0) {
-      const f = ((REPULSE_DIST - rd) / REPULSE_DIST) * 55 * dt;
-      ship.x += (rdx / rd) * f;
-      ship.y += (rdy / rd) * f;
-    }
-  }
+  const cw = s.width, ch = s.height;
+  const edges = [
+    { x: cw * 0.5, y: -90 },
+    { x: cw + 90,  y: ch * 0.5 },
+    { x: cw * 0.5, y: ch + 90 },
+    { x: -90,      y: ch * 0.5 },
+  ];
+  const sp = edges[Math.floor(Math.random() * 4)];
 
-  // Beam targeting + well claiming
-  const ti = findTargetWell(ship, s.wells, fl.wellOwnership, s.width);
-  ship.targetWellIdx = ti;
+  fl.visitor = createShip(genre, sp.x, sp.y);
+  fl.visitor.orbitAngle  = Math.atan2(sp.y - ch * 0.5, sp.x - cw * 0.5);
+  fl.visitor.orbitRadius = Math.min(cw, ch) * 0.43;
+  fl.visitor.orbitSpeed  = 0.24 + Math.random() * 0.13;
 
-  if (ti >= 0 && s.wells[ti]) {
-    steerShip(ship, s.wells[ti].x, s.wells[ti].y - 110, dt, 26);
-    const key = `${ti}_${ship.id}`;
-    fl.beamAccum.set(key, (fl.beamAccum.get(key) || 0) + dt);
+  fl.phase = 'arriving';
+  fl.phaseTimer = rand(DUR.arriving);
+  if (s.audioCtx) playWarpIn(s.audioCtx);
+  addToast(`↓ ${fl.visitor.label} approaches`);
+}
 
-    // Mark contested if another ship is also beaming this well
-    const rival = fl.ships.find(sh => sh.id !== ship.id && fl.beamAccum.has(`${ti}_${sh.id}`));
-    if (rival) {
-      s.wells[ti].fleetContested = true;
-      s.wells[ti].fleetContestedRgb = rival.rgb;
-    }
-
-    if (fl.beamAccum.get(key) >= CLAIM_TIME) {
-      const prev = fl.wellOwnership.get(ti);
-      if (prev && prev !== ship.id) fl.ships.find(sh => sh.id === prev)?.controlledWells.delete(ti);
-      fl.wellOwnership.set(ti, ship.id);
-      ship.controlledWells.add(ti);
-      fl.beamAccum.delete(key);
-      transformWell(s.wells[ti], ship);
-      if (s.audioCtx) playWellTransform(s.audioCtx, ship.rgb);
-    }
-  } else {
-    // Zone-bounded drift when no target
-    const zx = ship.homeZoneX ?? (s.width * 0.5);
-    if (!ship._driftTarget || Math.random() < dt * 0.2) {
-      ship._driftTarget = {
-        x: zx + (Math.random() - 0.5) * s.width * 0.28,
-        y: s.height * (0.22 + Math.random() * 0.56),
-      };
-    }
-    steerShip(ship, ship._driftTarget.x, ship._driftTarget.y, dt, 18);
-  }
-
-  ship.x = Math.max(55, Math.min(s.width - 55, ship.x));
-  ship.y = Math.max(55, Math.min(s.height - 95, ship.y));
-
-  // Prune dead wells
-  for (const wi of [...ship.controlledWells]) {
-    if (!s.wells[wi] || s.wells[wi].removing) {
-      ship.controlledWells.delete(wi); fl.wellOwnership.delete(wi);
-    }
-  }
-
-  // Fire missiles in combat phase
-  if (fl.phase === 'combat') {
-    ship.missileTimer -= dt;
-    if (ship.missileTimer <= 0) {
-      ship.missileTimer = 10 + Math.random() * 8;
-      _fire(ship, fl, s);
-    }
+function _tickArriving(fl, s, dt, addToast) {
+  const v = fl.visitor;
+  const cx = s.width * 0.5, cy = s.height * 0.5;
+  const tx = cx + Math.cos(v.orbitAngle) * v.orbitRadius;
+  const ty = cy + Math.sin(v.orbitAngle) * v.orbitRadius;
+  v.warpProgress = Math.min(1, v.warpProgress + dt * 0.28);
+  steerShip(v, tx, ty, dt, 120);
+  if (fl.phaseTimer <= 0) {
+    v.state = 'active';
+    fl.phase = 'orbiting';
+    fl.phaseTimer = rand(DUR.orbiting);
+    addToast(`♫ ${v.label} is listening…`);
   }
 }
 
-function _fire(ship, fl, s) {
-  const enemies = fl.ships.filter(sh => sh.id !== ship.id && sh.state === 'active');
-  if (!enemies.length) return;
-  const t = enemies[Math.floor(Math.random() * enemies.length)];
-  fl.missiles.push({ x: ship.x, y: ship.y, tx: t.x, ty: t.y, targetId: t.id, color: ship.color, rgb: ship.rgb, trail: [], life: 4 });
-  if (s.audioCtx) playMissileFire(s.audioCtx);
-}
-
-function _tickMissiles(fl, s, dt, addToast) {
-  for (let i = fl.missiles.length - 1; i >= 0; i--) {
-    const m = fl.missiles[i];
-    const tgt = fl.ships.find(sh => sh.id === m.targetId && sh.state === 'active');
-    if (tgt) { m.tx = tgt.x; m.ty = tgt.y; }
-    const dx = m.tx - m.x, dy = m.ty - m.y, d = Math.hypot(dx, dy);
-
-    if (d < 14 && tgt) {
-      tgt.hp = Math.max(0, tgt.hp - 1);
-      if (tgt.controlledWells.size > 0) {
-        const wi = [...tgt.controlledWells][0];
-        tgt.controlledWells.delete(wi); fl.wellOwnership.delete(wi);
-      }
-      if (s.audioCtx) playBattleTension(s.audioCtx, 1 - tgt.hp / tgt.maxHp);
-      if (tgt.hp <= 0) _destroyShip(tgt, fl, s, addToast);
-      fl.missiles.splice(i, 1); continue;
+function _tickOrbiting(fl, s, dt, addToast) {
+  _orbitStep(fl.visitor, s, dt, 1.0);
+  if (fl.phaseTimer <= 0) {
+    fl.sessionWells = selectSessionWells(s.wells, fl.visitor.genre, 3);
+    const g = GENRES[fl.visitor.genre];
+    for (const wi of fl.sessionWells) {
+      const w = s.wells[wi];
+      if (!w) continue;
+      w._danceVisitor = fl.visitor.genre;
+      w._danceRgb     = fl.visitor.rgb;
+      w._danceBpm     = g.bpm;
+      w._danceAmp     = 9;
     }
-
-    m.trail.push({ x: m.x, y: m.y });
-    if (m.trail.length > 7) m.trail.shift();
-    if (d > 1) { m.x += (dx / d) * MISSILE_SPD * dt; m.y += (dy / d) * MISSILE_SPD * dt; }
-    m.life -= dt;
-    if (m.life <= 0) fl.missiles.splice(i, 1);
+    fl.phase = 'session';
+    fl.phaseTimer = rand(DUR.session);
+    if (s.audioCtx) playSessionStart(s.audioCtx, fl.visitor.rgb);
+    addToast(`▶ ${fl.visitor.label} SESSION`);
   }
 }
 
-function _destroyShip(ship, fl, s, addToast) {
-  ship.state = 'exploding'; ship.explodeTimer = 3;
-  for (let i = 0; i < 90; i++) {
-    const a = Math.random() * Math.PI * 2, spd = 25 + Math.random() * 130;
-    ship.explosionParticles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 1 });
+function _tickSession(fl, s, dt, addToast) {
+  _orbitStep(fl.visitor, s, dt, 0.5);
+
+  // Session counter-melody pulses on owned wells
+  fl.visitor._pulseAccum += dt;
+  const period = 60 / (GENRES[fl.visitor.genre]?.bpm ?? 120);
+  if (fl.visitor._pulseAccum >= period) {
+    fl.visitor._pulseAccum -= period;
+    const wi = fl.sessionWells[Math.floor(Math.random() * fl.sessionWells.length)];
+    const w  = wi != null ? s.wells[wi] : null;
+    if (w && s.audioCtx) playGenrePulse(s.audioCtx, w.freq, fl.visitor.genre, (w.x / s.width) * 2 - 1);
   }
-  for (const wi of ship.controlledWells) fl.wellOwnership.delete(wi);
-  ship.controlledWells.clear();
-  fl.screenFlash = { color: ship.color, alpha: 0.5 };
-  if (s.audioCtx) playExplosion(s.audioCtx);
-  addToast(`💥 ${ship.label} DESTROYED`);
+
+  if (fl.phaseTimer <= 0) {
+    for (const wi of fl.sessionWells) {
+      const w = s.wells[wi];
+      if (!w) continue;
+      w._danceVisitor = null;       // visitor color fades, but dance stays
+      teachWell(w, fl.visitor, s);
+      if (s.audioCtx) playTeachWell(s.audioCtx, w.freq ?? 440);
+    }
+    fl.sessionWells = [];
+    fl.phase = 'departing';
+    fl.phaseTimer = rand(DUR.departing);
+    addToast(`✦ ${fl.visitor.label} taught the wells`);
+  }
+}
+
+function _tickDeparting(fl, s, dt) {
+  const v = fl.visitor;
+  v.warpProgress = Math.max(0, v.warpProgress - dt * 0.55);
+  const maxR = Math.max(s.width, s.height) * 1.2;
+  steerShip(v, s.width * 0.5 + Math.cos(v.orbitAngle) * maxR,
+               s.height * 0.5 + Math.sin(v.orbitAngle) * maxR, dt, 140);
+  if (fl.phaseTimer <= 0) {
+    fl.visitor    = null;
+    fl.phase      = 'gap';
+    fl.phaseTimer = rand(DUR.gap);
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function _orbitStep(v, s, dt, speedMult = 1) {
+  v.beamPulse   = (v.beamPulse + dt * 2.5) % (Math.PI * 2);
+  v.orbitAngle += v.orbitSpeed * speedMult * dt;
+  const cx = s.width * 0.5, cy = s.height * 0.5;
+  steerShip(v, cx + Math.cos(v.orbitAngle) * v.orbitRadius,
+               cy + Math.sin(v.orbitAngle) * v.orbitRadius, dt, 62);
+  v.x = Math.max(18, Math.min(s.width  - 18, v.x));
+  v.y = Math.max(18, Math.min(s.height - 18, v.y));
+}
+
+function _tickTrail(v, dt) {
+  v.trail.push({ x: v.x, y: v.y, life: 1 });
+  for (let i = v.trail.length - 1; i >= 0; i--) {
+    v.trail[i].life -= dt * 2.0;
+    if (v.trail[i].life <= 0) v.trail.splice(i, 1);
+  }
+  if (v.trail.length > 26) v.trail.splice(0, v.trail.length - 26);
 }

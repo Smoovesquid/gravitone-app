@@ -1,112 +1,94 @@
 /**
- * @fileoverview Battle well management — spawning and musical transformation.
- * Wells spawn at battle start to give ships territory. Claimed wells shift
- * to the genre's scale so the canvas sounds different as territory changes.
+ * @fileoverview Well selection and teaching for Alien Visitation mode.
+ * Visitors select existing wells, run sessions, then permanently teach them
+ * new rhythmic and harmonic behaviors that persist after the ship departs.
  */
 
 import { GENRES } from '../data/genres';
-import { SCALES, getScaleNoteFrequency, octaveFromY } from '../audio/scales';
-import { createToneWell, createDrumWell } from './well';
-
-const GENRE_DRUMS = {
-  trap: 'kick', lofi: 'hihat', house: 'kick', boombap: 'snare', techno: 'kick',
-};
+import { SCALES, getScaleNoteFrequency } from '../audio/scales';
 
 /**
- * Spawn territory wells for each ship zone at battle start.
- * 2 tone wells + 1 drum well per zone, spread across canvas.
- * @param {Object} s  game state
- * @param {Object} fl fleet state
+ * Select up to `count` wells for a visitor session.
+ * Prefers wells not yet taught by this genre; breaks ties randomly.
+ * Targets tone wells first, then drum wells.
+ * @param {Object[]} wells
+ * @param {string}   genre
+ * @param {number}   count
+ * @returns {number[]} well indices
  */
-export function initFleetWells(s, fl) {
-  const { width: cw, height: ch, time } = s;
-
-  for (const ship of fl.ships) {
-    const g = GENRES[ship.genre];
-    const scaleName = g.scale;
-    const scale = SCALES[scaleName]?.notes || SCALES.pentatonic.notes;
-    const zx = ship.homeZoneX;
-    const spread = cw * 0.16;
-
-    // Two tone wells per zone, vertically distributed
-    for (let n = 0; n < 2; n++) {
-      const x = zx + (Math.random() - 0.5) * spread;
-      const y = ch * (0.28 + n * 0.28 + (Math.random() - 0.5) * 0.1);
-      const noteIdx = Math.floor((n / 2) * (scale.length - 1));
-      const octave = octaveFromY(y, ch);
-      const w = createToneWell(x, y, 55 + Math.random() * 25, noteIdx, scale, time, scaleName, octave);
-      w._fleetSpawned = true;
-      s.wells.push(w);
-    }
-
-    // One drum well per zone
-    const dx = zx + (Math.random() - 0.5) * spread * 0.7;
-    const dy = ch * (0.62 + (Math.random() - 0.5) * 0.12);
-    const dw = createDrumWell(dx, dy, 48, GENRE_DRUMS[ship.genre] || 'kick', time);
-    dw._fleetSpawned = true;
-    s.wells.push(dw);
+export function selectSessionWells(wells, genre, count = 3) {
+  const eligible = [];
+  for (let i = 0; i < wells.length; i++) {
+    const w = wells[i];
+    if (!w || w.removing || w.type === 'blackhole' || w.type === 'station') continue;
+    if (w.type === 'neutronstar' || w.type === 'quasar' || w.type === 'pulsar') continue;
+    const alreadyTaught = w._learnedFrom?.some(l => l.genre === genre) ? 1 : 0;
+    eligible.push({ i, alreadyTaught, r: Math.random() });
   }
+  eligible.sort((a, b) => a.alreadyTaught - b.alreadyTaught || a.r - b.r);
+  return eligible.slice(0, count).map(e => e.i);
 }
 
 /**
- * Shift a tone well's frequency to the claiming ship's genre scale.
- * Stores original so it can be restored when the battle ends.
+ * Permanently teach a well a new musical behavior.
+ * Layers a self-pulse at the genre's BPM, shifts frequency, adds permanent dance.
  * @param {Object} well
- * @param {Object} ship
+ * @param {Object} ship  visitor ship (has .genre, .rgb)
+ * @param {Object} s     game state (for s.time)
  */
-export function transformWell(well, ship) {
-  if (well.type !== 'tone') return;
+export function teachWell(well, ship, s) {
   const g = GENRES[ship.genre];
   if (!g) return;
 
-  // Save original values once
-  if (well._origFreq == null) {
-    well._origFreq = well.freq;
-    well._origScale = well.scaleName;
-    well._origNoteIdx = well.noteIdx;
+  // Record teaching history
+  well._learnedFrom = well._learnedFrom || [];
+  well._learnedFrom.push({ genre: ship.genre, time: s?.time ?? 0 });
+
+  // Layer self-pulse (each genre adds its own; no duplicates)
+  well._selfPulses = well._selfPulses || [];
+  if (!well._selfPulses.find(p => p.genre === ship.genre)) {
+    const period = 60 / g.bpm;
+    well._selfPulses.push({ genre: ship.genre, period, accum: Math.random() * period });
   }
 
-  const scale = SCALES[g.scale]?.notes || SCALES.pentatonic.notes;
-  const noteIdx = Math.min(well.noteIdx ?? 0, scale.length - 1);
-  const newFreq = getScaleNoteFrequency(g.scale, noteIdx, well.octave ?? 4);
-  well.scaleName = g.scale;
+  // Permanent subtle dance — amplitude grows with each visit, caps at 12px
+  well._danceAmp = Math.min((well._danceAmp || 0) + 3, 12);
+  well._danceBpm = g.bpm;
 
-  // Portamento: glide from current freq to new target over ~550ms
-  well._freqFrom   = well.freq;
-  well._freqTarget = newFreq;
-  well._freqGlideT = 0;
-  // freq will be updated each tick in tickFleet; set now as fallback
-  well.freq = newFreq;
+  // Frequency shift with portamento (tone wells only)
+  if (well.type === 'tone') {
+    const scale   = SCALES[g.scale]?.notes || SCALES.pentatonic.notes;
+    const noteIdx = Math.min(well.noteIdx ?? 0, scale.length - 1);
+    const newFreq = getScaleNoteFrequency(g.scale, noteIdx, well.octave ?? 4);
 
-  // Visual pulse to signal the change
-  well.pulsePhase = Date.now() / 1000;
+    if (well._origFreq == null) {
+      well._origFreq  = well.freq;
+      well._origScale = well.scaleName;
+    }
+    well._freqFrom   = well.freq;
+    well._freqTarget = newFreq;
+    well._freqGlideT = 0;
+    well.freq        = newFreq;
+    well.scaleName   = g.scale;
+  }
 }
 
 /**
- * Restore all transformed wells and clear fleet flags. Call when battle ends.
+ * Restore all wells to pre-visitation state. Call on session end.
  * @param {Object} s  game state
  */
 export function restoreWells(s) {
   for (const w of s.wells) {
     if (w._origFreq != null) {
-      w.freq = w._origFreq;
+      w.freq      = w._origFreq;
       w.scaleName = w._origScale;
-      w.noteIdx = w._origNoteIdx;
-      delete w._origFreq; delete w._origScale; delete w._origNoteIdx;
+      delete w._origFreq;
+      delete w._origScale;
     }
-    w.fleetOwnerColor = null;
-    w.fleetOwnerRgb = null;
-    w.fleetContested = false;
-    w.fleetContestedRgb = null;
-  }
-}
-
-/**
- * Remove wells that were spawned by the fleet battle.
- * @param {Object} s
- */
-export function removeFleetWells(s) {
-  for (let i = s.wells.length - 1; i >= 0; i--) {
-    if (s.wells[i]._fleetSpawned) s.wells.splice(i, 1);
+    // Clear all visitation state
+    ['_danceVisitor','_danceRgb','_danceAmp','_danceBpm',
+     '_selfPulses','_learnedFrom','_freqGlideT','_freqFrom','_freqTarget',
+     'fleetOwnerColor','fleetOwnerRgb','fleetContested','fleetContestedRgb',
+    ].forEach(k => delete w[k]);
   }
 }

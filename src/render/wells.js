@@ -22,6 +22,13 @@ export function drawWells(ctx, s) {
       drawAlpha = 1 - t;
     }
 
+    // Dance pulse — wells bob to their taught genre's BPM
+    if (w._danceAmp > 0 && w._danceBpm) {
+      const bpmRad  = (w._danceBpm / 60) * Math.PI * 2;
+      const phase   = s.time * bpmRad + (w.x * 0.009 + w.y * 0.006);
+      drawScale *= 1 + (w._danceAmp / 115) * Math.sin(phase);
+    }
+
     const needsTransform = drawScale !== 1 || drawAlpha !== 1;
     if (needsTransform) {
       ctx.save();
@@ -76,34 +83,31 @@ export function drawWells(ctx, s) {
       ctx.stroke();
     }
 
-    // Fleet battle control ring (genre-colored pulsing halo)
-    if (w.fleetOwnerRgb) {
-      const pulse = (Math.sin(s.time * 4 + w.x * 0.01) + 1) / 2;
-      const ringR = (w.mass || 50) / 2 + 20;
-      ctx.beginPath();
-      ctx.arc(w.x, w.y, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${w.fleetOwnerRgb},${(0.18 + pulse * 0.32).toFixed(2)})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // Inner dot pulse
-      ctx.beginPath();
-      ctx.arc(w.x, w.y, 4 + pulse * 3, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${w.fleetOwnerRgb},${(0.1 + pulse * 0.2).toFixed(2)})`;
-      ctx.fill();
+    // Visitor session aura — glowing halo while a ship is actively working this well
+    if (w._danceVisitor && w._danceRgb) {
+      const pulse  = (Math.sin(s.time * 3.2 + w.x * 0.012) + 1) / 2;
+      const ringR  = (w.mass || 50) / 2 + 18 + pulse * 7;
+      const grad   = ctx.createRadialGradient(w.x, w.y, ringR * 0.6, w.x, w.y, ringR * 1.4);
+      grad.addColorStop(0, `rgba(${w._danceRgb},${(0.22 + pulse * 0.2).toFixed(2)})`);
+      grad.addColorStop(1, 'transparent');
+      ctx.beginPath(); ctx.arc(w.x, w.y, ringR * 1.4, 0, Math.PI * 2);
+      ctx.fillStyle = grad; ctx.fill();
     }
 
-    // Contested well — two ships fighting for this well — rapid oscillation
-    if (w.fleetContested && w.fleetOwnerRgb && w.fleetContestedRgb) {
-      const flicker = Math.sin(s.time * 18) > 0;
-      const rgb = flicker ? w.fleetOwnerRgb : w.fleetContestedRgb;
-      const ringR = (w.mass || 50) / 2 + 28;
-      ctx.beginPath();
-      ctx.arc(w.x, w.y, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${rgb},0.55)`;
-      ctx.lineWidth = 3;
-      ctx.setLineDash([4, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
+    // Taught glow — faint permanent colored halos from each genre that visited
+    if (w._learnedFrom?.length && !w._danceVisitor) {
+      const recent = w._learnedFrom[w._learnedFrom.length - 1];
+      if (recent) {
+        // Mini orbiting dots — one per genre learned
+        w._learnedFrom.forEach((lf, idx) => {
+          const angle = s.time * 0.6 + idx * (Math.PI * 2 / w._learnedFrom.length);
+          const dotR  = (w.mass || 50) / 2 + 14;
+          ctx.beginPath();
+          ctx.arc(w.x + Math.cos(angle) * dotR, w.y + Math.sin(angle) * dotR, 2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,0.18)`;
+          ctx.fill();
+        });
+      }
     }
 
     if (needsTransform) {
